@@ -1849,6 +1849,7 @@ function criteriaFormHTML(criteria, marketNames = [], extraHidden = "") {
       suggestions: ["Senior", "Principal", "Director", "VP", "Head of", "Lead"],
       placeholder: "add a level…",
     })}
+    <label>Max company size (engineering org)<input name="company_size_max" value="${val("company_size_max")}"></label>
     <div class="actions"><button type="submit">Save</button></div>
     ${/* The three scoring weights live in Advanced, but they must still POST from THIS form —
          /save-criteria writes all of criteria.md, so omitting them here would blank them on every
@@ -7479,7 +7480,7 @@ async function setUpAddedMarkets(added) {
 async function handleSaveCriteria(form) {
   const file = path.join(DATA, "criteria.md");
   const { body } = parseFrontmatter(await safeRead(file));
-  const keys = ["markets", "roles", "locations", "seniority", "weight_market", "weight_role", "weight_cv"];
+  const keys = ["markets", "roles", "locations", "seniority", "weight_market", "weight_role", "weight_cv", "company_size_max"];
   // Worked out BEFORE the write, while criteria.md still holds the old market list.
   const impact = await criteriaImpact(form.markets ?? "");
   const before = marketList((parseFrontmatter(await safeRead(file)).data || {}).markets);

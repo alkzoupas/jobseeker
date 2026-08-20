@@ -134,7 +134,11 @@ tier-1 vendors in `data/markets/*.md` that didn't surface on LinkedIn, go direct
   available — then do web/careers-page search only, and note LinkedIn was skipped.
 
 **3. Keep only genuine matches** — a target role, acceptable location (UAE/Dubai or remote per criteria),
-right seniority. Dedup against existing `proposals/*.md` and `applications/*.md` (company+role).
+right seniority. If `company_size_max` is set in `data/criteria.md`, check the posting/company page
+for a headcount signal on any company you don't already have sized in `data/markets/*.md`, and note
+it in the rationale — but size is a **preference to note, not a filter**: don't drop an otherwise
+strong match just for being a larger company. Dedup against existing `proposals/*.md` and
+`applications/*.md` (company+role).
 
 ## Verifying a posting before you propose it (MANDATORY)
 0. **THE RULE: never mark a role `verified` unless you OPENED its link and the opened page shows the

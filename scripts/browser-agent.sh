@@ -31,7 +31,14 @@ if [ -z "$NODE" ]; then
   for c in /opt/homebrew/bin/node /usr/local/bin/node; do [ -x "$c" ] && NODE="$c" && break; done
 fi
 
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
+# The LaunchAgent plist invokes this script via .../JobSeeker (capital J), but on this
+# case-insensitive APFS volume the on-disk name is lowercase `jobseeker`, and Node's
+# process.cwd() always reports the physical name. If REPO kept the plist's casing, everything
+# derived from it (REQ/RES/LOG) would never match what the result-writer's `data/` safety check
+# compares against below -- refusing every write with "outside data/" even though it's the same
+# directory. Neither bash's builtin `pwd -P` nor `cd -P` actually resolve the case on macOS's
+# bundled bash 3.2 (they only resolve symlinks, not case) -- only the external /bin/pwd -P does.
+REPO="$(cd "$(dirname "$0")/.." && /bin/pwd -P)"
 cd "$REPO" || exit 1
 
 REQ="$REPO/data/.browser-request.json"
