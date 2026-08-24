@@ -48,8 +48,13 @@ stays role-scout's job.** You produce a **watchlist**, not a proposal queue.
 4. **WeWorkRemotely — stateless, no account.** Prefer the category RSS feeds (`docs/sources.md` has
    the URLs) over browsing HTML.
 5. **Otta / Welcome to the Jungle — Chrome, only if the user has an account.** If they don't and
-   haven't said to skip it, ask before creating one — signing up is an outward action, not a read
-   (AGENT-RULES §0). If skipped, say so plainly in your summary; don't silently under-report.
+   haven't said to skip it, ask before creating one — signing up (and entering a password) is an
+   outward action you cannot perform yourself, full stop, not just an AGENT-RULES §0 ask-first case;
+   tell the user to do it and wait. **It's an AI-matching feed, not a keyword search** (`docs/sources.md`
+   has the details) — read `/en/jobs-matches` ("New matches") against the user's saved preferences
+   rather than typing a query. Expect it to skew toward generic already-open EM/ML roles (role-scout's
+   territory) rather than genuine demand signals; a null result here is a legitimate outcome, not a
+   sign you did it wrong. If skipped, say so plainly in your summary; don't silently under-report.
 6. **For each candidate**, before writing a row:
    - Confirm the company is real and currently operating (a careers page or company site that loads).
    - Judge `signal_strength`: `strong` if a strong term fired (per `docs/sources.md`) or you found a

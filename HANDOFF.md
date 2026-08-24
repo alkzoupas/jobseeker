@@ -33,7 +33,7 @@ different sources (Wellfound, Otta/Welcome to the Jungle, WeWorkRemotely, HN Who
 - [x] role-scout reads `data/signals/<market>.md` as an extra candidate scope (never writes a proposal from a signal row alone); jobseeker.md + CLAUDE.md front-door tables route "find companies before they post" to signal-scout/`/signals`; curate.md tells scouts to check their market's signals file; job-run.md's **deep** weekly pass refreshes signals 7+ days stale per market (daily pass does not, to stay fast) — a watch lane outside `criteria.md` is never touched by either
 - [x] dashboard: `loadSignals()` + `signalsHTML()` in `server/dashboard.mjs`, rendered under the Companies tab (Settings page). Parseable (flat-table) files render as a real table; legacy/prose files (maritime-tech.md) render as a labelled link instead of garbled columns. Verified against both shapes with the dashboard actually running (restarted the long-lived `npm run dashboard` process on port 4319 to pick up the new code — it had been running since 2026-08-19).
 - [x] tests green — `test:security` PASS (11/11), `test:concurrency` PASS (8/8), `test:sweep` PASS (7/7), all re-run after the dashboard.mjs edits, no regressions
-- [x] first real `/signals` pass run (Trust & Safety + Machine Learning), results below — **feature build done, this pass is partial** (Otta pending, see below)
+- [x] first real `/signals` pass run (Trust & Safety + Machine Learning), including Otta/WTTJ once the account was live — **done, all sources covered**
 
 ## 2026-08-24 (cont'd) — first real pass results
 
@@ -44,6 +44,40 @@ LinkedIn" as an alternative (no password, one click) — the claude-in-chrome ex
 permission on the LinkedIn OAuth domain, and OAuth/SSO grants need separate explicit consent anyway
 (a different rule, not the browser's). User chose to sign up themselves; not done as of this pass.
 **Next `/signals` run should fold in Otta once that's confirmed done.**
+
+**Update, same day: account is live, folded in.** Took two checks (still signed-out) before the user
+confirmed it was actually done — the signed-out state persisted through a full Chrome restart, since
+login is a cookie, not something a relaunch creates or clears.
+
+**Finding: WTTJ's search UX has moved to AI-matching, not a filterable job board.** Typing a query on
+the homepage returns a count ("717 jobs found") but no browsable list — it pushes you to build a
+profile instead. The real surface is `/en/jobs-matches` ("New matches"), scored against saved
+preferences the user had already set (Engineering Manager, Anti-Abuse AI · Expert/leadership ·
+Bay Area/remote · $150K+). Corrected `docs/sources.md` and `signal-scout.md` to describe this
+accurately rather than the "account unlocks filtering" assumption both docs shipped with originally —
+that assumption was reasonable going in but wrong once actually checked, which is exactly why the docs
+say "verified 2026-08-24" now instead of stating it as evergreen fact.
+
+**Result: 0 new signal rows from Otta, in either market — and that's a real answer, not a miss.** Of
+10 matches: 2 were Pinterest/Airbnb, both already-tracked companies; the rest were either
+domain-generic EM/ML openings (Function, Cribl, Extend) or pure infosec roles (Fastly, Oportun,
+SentinelOne) — the exact "Cybersecurity focused, not T&S" shape the user has repeatedly dismissed per
+`dismissal-patterns`. Recorded plainly in both `data/signals/*.md` files rather than padded with weak
+fits to look more productive. `record.mjs log signals` entry added; dashboard re-verified rendering
+both files correctly after the edit (2 "candidates)" tables present, no regressions).
+
+**This closes the feature build.** Everything in the checklist above is done and committed
+(`ece85a4` covers the code/docs; the Otta follow-up and this note are a second commit). `data/signals/
+trust-safety.md` and `data/signals/machine-learning.md` are real files now (gitignored, not in that
+commit) — first-run output, ready for the next scheduled `/signals` or the deep `/job-run` pass to
+refresh.
+
+**Still open, not blocking:** DAT and Gray Swan AI (flagged in `trust-safety.md`) are live leadership
+openings, not signals — worth a `/curate` pass whenever the user wants to chase them. Wellfound's
+pill-based search resisted narrowing past the first results page, so its Trust & Safety coverage was
+a skim of page one rather than exhaustive; fine for a first pass, worth revisiting with a cleaner query
+approach (the URL query-string route didn't work either — worth finding the right param shape, or just
+accepting the UI friction, next time).
 
 **Trust & Safety** — HN Who's Hiring (3 months, full-thread read) + Wellfound (existing session,
 "Engineering Manager" + trust/safety query, ~842 unfiltered results skimmed for the top page — the
