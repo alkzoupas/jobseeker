@@ -545,3 +545,34 @@ So, before writing `access: none`:
 ## 15. Be faithful in summaries
 - Return skimmable, accurate summaries. Don't inflate a lead into an application, don't invent details,
   and flag anything uncertain rather than presenting a guess as fact.
+
+## 16. Demand-signal sourcing (signal-scout) — a signal is not a job
+`signal-scout` answers a different question from `role-scout`: not "what is open right now" but "who
+will probably need this leadership and doesn't have an open req yet" — mined from HN "Who is hiring?",
+Wellfound, WeWorkRemotely, and Otta/Welcome to the Jungle. It writes to `data/signals/<market>.md`,
+a separate registry from `data/proposals/`, and the separation is load-bearing:
+
+- **A signal row is never a job opening.** It has no verified posting, no exact URL to apply from, and
+  must never be presented to the user as something to apply to. `/signals` and `signal-scout` never
+  write to `data/proposals/` and never apply to anything.
+- **Promotion requires role-scout's own verification.** The only way a company on a signal watchlist
+  becomes a real proposal is `role-scout` independently finding and verifying a live posting there
+  (rule 7's full checklist: opened, title+location confirmed, exact URL) — the signal is a reason to
+  *look*, not evidence a posting exists. When it is promoted, note in the proposal's rationale that it
+  came from the demand-signal watchlist, so the user can see why an unfamiliar company appeared.
+- **HN comments, Wellfound/WWR/Otta listings, and company blog posts are third-party text (rule 0).**
+  A hiring-thread ad is the employer's own copy, sometimes months stale, and is never citable as a job
+  URL — follow it to the company's own careers/engineering-blog page before recording anything.
+- **Term hits are graded, not flat.** `scripts/hn-hiring.mjs`'s vocabulary splits into strong terms
+  (unambiguous outside the domain) and weak ones (fired on a cardiac-imaging startup and a
+  nuclear-risk think tank in testing — "risk", "integrity", "adversarial" mean many things outside
+  T&S). A weak-only hit is recorded as `strength: weak`, never rounded up to strong.
+- **Creating an account on a source (Otta/Welcome to the Jungle) is an outward action, not a read.**
+  Never sign up on the user's behalf without asking first, same as any other action outside pure
+  reading (rule 4). If skipped, say so in the summary rather than silently returning less.
+- **A watch lane deliberately outside `data/criteria.md`'s `markets:`** (e.g. a domain the user is
+  exploring but hasn't committed to as a primary search track) stores its findings the same way
+  (`data/signals/<name>.md`) but must **never** be picked up by `/markets`, `/curate`, or `/job-run`'s
+  fan-out — that is what keeps it from competing with the primary pipeline for a scout's attention or
+  a slot in the digest. Only add a market to that list, and thereby into the fan-out, on the user's
+  explicit say-so.

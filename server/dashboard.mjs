@@ -532,6 +532,7 @@ async function loadAll() {
   // Roles left behind by a vertical dropped from criteria. Computed here because page() is
   // synchronous and this needs to read the proposal records.
   const orphans = await orphanedProposals().catch(() => ({ count: 0, ids: [], byMarket: {} }));
+  const signals = await loadSignals();
   // scripts/job-run.sh writes this. A failed scheduled run is otherwise invisible, so Today shows it.
   // The schedule ladder's own state. scripts/schedule-ladder.sh owns the writes; this only reads,
   // so the dashboard can say what is about to change and offer the way out.
@@ -610,6 +611,7 @@ async function loadAll() {
     version,
     updateRun,
     extVersion,
+    signals,
     boards,
     orphans,
     lastRun,
@@ -646,6 +648,39 @@ async function loadMarkets() {
       if (m) label = m[1].trim();
     } catch {}
     out.push({ name: f.replace(/\.md$/, ""), label: label || f.replace(/\.md$/, ""), table });
+  }
+  return out;
+}
+
+// Demand-signal watchlists (signal-scout, AGENT-RULES §16) — companies flagged as likely to need
+// this leadership with NO verified opening, kept deliberately separate from data/markets/*.md (the
+// primary target list) and data/proposals/ (verified live postings). Same file-per-market convention
+// as loadMarkets(), but a signals file may predate the flat company-row schema (data/signals/
+// maritime-tech.md is a hand-authored watch-lane doc with several differently-shaped prose tables,
+// written before this schema existed) — readTable() only sees the FIRST table in a file and applies
+// its headers to every subsequent pipe-row, so parsing that file as company rows would silently
+// misalign columns. Only render a table when the parsed headers actually look like our schema;
+// otherwise fall back to a plain link so a legacy file never produces garbled output.
+async function loadSignals() {
+  const dir = path.join(DATA, "signals");
+  let files = [];
+  try {
+    files = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const f of files.sort()) {
+    if (!f.endsWith(".md") || f.startsWith(".")) continue;
+    const p = path.join(dir, f);
+    const table = await readTable(p);
+    let label = "";
+    try {
+      const m = /^#\s*(?:Demand signals|Watch lane):\s*(.+)$/im.exec(await fs.readFile(p, "utf8"));
+      if (m) label = m[1].trim();
+    } catch {}
+    const parseable = table.headers.map((h) => h.toLowerCase()).includes("company");
+    out.push({ name: f.replace(/\.md$/, ""), label: label || f.replace(/\.md$/, ""), table, parseable });
   }
   return out;
 }
@@ -1408,6 +1443,53 @@ function companyState(e) {
   return "readable";
 }
 
+// Read-only — signal-scout owns data/signals/*.md, this just surfaces it. Deliberately NOT merged
+// into joinCompanies()/companyState(): a signal row has no board access verdict and is not a target
+// the user is applying to, so folding it into the same table would blur the "watch this company" /
+// "this is a real target with a career board" distinction that AGENT-RULES §16 exists to keep clear.
+function signalsHTML(all) {
+  const lanes = all.signals ?? [];
+  if (!lanes.length) return "";
+
+  const marketNames = new Set((all.markets ?? []).map((m) => marketKey(m.name)));
+  const row = (r) => `<tr>
+      <td><strong>${esc(r.company || "")}</strong></td>
+      <td>${esc(r.source || "")}</td>
+      <td>${esc(r.signal_terms || "")}</td>
+      <td>${esc(r.strength || "")}</td>
+      <td>${esc(r.remote || "")}</td>
+      <td>${r.evidence_url ? `<a href="${esc(r.evidence_url)}" target="_blank" rel="noopener">source ↗</a>` : ""}</td>
+      <td${cellCls(r.last_seen)}>${esc(r.last_seen || "")}</td>
+      <td class="muted">${esc(clip(r.notes || "", 140))}</td>
+    </tr>`;
+
+  const laneHTML = lanes
+    .map((l) => {
+      const isWatchLane = !marketNames.has(marketKey(l.name)) && !marketNames.has(marketKey(l.label));
+      const badge = isWatchLane
+        ? ` <span class="pill" title="Not in data/criteria.md's markets: list — /markets, /curate and /job-run never fan out to it">watch lane</span>`
+        : "";
+      if (!l.parseable) {
+        return `<details class="cogroup">
+          <summary>${esc(l.label)}${badge} <span class="muted">(hand-authored notes, not the standard table — see <code>data/signals/${esc(l.name)}.md</code>)</span></summary>
+          <p class="muted" style="margin:8px 0 0">This file predates signal-scout's flat schema, so it isn't rendered as a table here. Open <code>data/signals/${esc(l.name)}.md</code> directly to read it.</p>
+        </details>`;
+      }
+      return `<details class="cogroup">
+        <summary>${esc(l.label)}${badge} <span class="muted">(<span class="cocount">${l.table.rows.length}</span> candidate${l.table.rows.length === 1 ? "" : "s"})</span></summary>
+        <div class="scroll"><table class="btable cotable">
+          <thead><tr><th>Company</th><th>Source</th><th>Signal terms</th><th>Strength</th><th>Remote</th><th>Evidence</th><th>Last seen</th><th>Notes</th></tr></thead>
+          <tbody>${l.table.rows.map(row).join("")}</tbody></table></div>
+      </details>`;
+    })
+    .join("");
+
+  return `<h3 style="margin:22px 0 4px">Demand-signal watchlists</h3>
+    <p class="muted" style="margin:0 0 10px">Companies flagged by <code>signal-scout</code> as likely to need this leadership —
+      NOT verified openings. A row here becomes a real proposal only once role-scout finds and verifies a live posting there (AGENT-RULES §16).</p>
+    ${laneHTML}`;
+}
+
 function companiesHTML(all) {
   const entries = joinCompanies(all);
 
@@ -1658,7 +1740,8 @@ They stay in data/boards.md and can be restored.">
       <button type="button" class="btn-secondary btn-small coexpand" data-open="1">Collapse all</button>
       <span class="muted comatch"></span>
     </div>
-    ${groupHTML}`;
+    ${groupHTML}
+    ${signalsHTML(all)}`;
 }
 
 // Add a company by hand. Adding it also kicks off scripts/discover-board.mjs for that company, so

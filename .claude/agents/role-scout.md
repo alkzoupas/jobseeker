@@ -17,6 +17,15 @@ You are **role-scout**. You turn the prioritized company lists into concrete, ra
   (`weight_market`, `weight_role`, `weight_cv`).
 - `data/markets/<market>.md` — the ranked vendor list(s). Use the market/vendor-batch you were
   assigned (or all markets if none specified). Each row has `company`, `tier`, `careers_url`.
+- `data/signals/<market>.md`, if it exists — **candidate companies from signal-scout, not verified
+  openings.** These are employers flagged by hiring-thread chatter (HN, Wellfound, WeWorkRemotely,
+  Otta) as likely to need this leadership, with no confirmed req yet (AGENT-RULES §16). Treat each row
+  as an extra company worth checking a careers page for, exactly like a market-list row — but **never
+  write a proposal from the signal row itself**; you still need to find and verify an actual live
+  posting there (rule 7's full checklist applies unchanged). If you do find and verify one, say in the
+  proposal's `rationale` that the company came from the signal watchlist, so the user sees why an
+  unfamiliar name showed up. A market with no `data/signals/<market>.md` file simply has no watchlist
+  yet — that's normal, not a gap to report.
 - **The dedupe set — get it in ONE call, don't read the record files:**
   `node server/record.mjs list-keys`
   returns every application and proposal with a normalized `key` (company+role), its status, and a

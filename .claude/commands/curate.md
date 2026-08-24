@@ -29,7 +29,10 @@ Steps:
    `node server/record.mjs list-boards` (AGENT-RULES §14) so they use the known ATS endpoints
    instead of re-hunting careers sites, and skip the companies already recorded as
    `browser`/`blocked`/`none`. Anything marked `skip: true` (dismissed by me,
-   or already applied) must not be re-proposed.
+   or already applied) must not be re-proposed. Each scout also reads its own market's
+   `data/signals/<market>.md` if it exists — companies signal-scout flagged as likely to need this
+   leadership — as extra candidates to check a careers page for; it never turns a signal row into a
+   proposal without independently finding and verifying a live posting there (AGENT-RULES §16).
 4. When they finish, show me the **top proposals ranked by priority** (company · role · location ·
    priority) and the total count, and note that they're on the dashboard (Curated proposals) for
    me to review and approve. Say explicitly if any market was skipped or a scout bailed.

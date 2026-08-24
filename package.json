@@ -36,6 +36,7 @@
     "update": "node scripts/run.mjs update-now",
     "cv:probe": "node scripts/cv-probe.mjs",
     "check:urls": "node scripts/check-urls.mjs",
+    "hn:hiring": "node scripts/hn-hiring.mjs",
     "test:concurrency": "node scripts/test-concurrency.mjs",
     "guard": "node scripts/run.mjs rss-guard",
     "icons": "python3 scripts/make-icons.py",

@@ -24,6 +24,7 @@ Natural request → what to run:
 | "jobseeker, check WhatsApp/LinkedIn" | jobseeker agent → chat-tracker playbook |
 | "find me roles" / "curate" | jobseeker agent → role-scout (or `/curate`) |
 | "research <market> vendors" | jobseeker agent → prioritization-agent (or `/markets`) |
+| "who else might need this role" / "find companies before they post" | jobseeker agent → signal-scout (or `/signals`) — watchlist only, never a proposal |
 | "apply to <proposal>" | `/apply <id>` (interactive, approval-gated) |
 | "follow up with X" | `/followup` (draft → approve → send) |
 | "what's my pipeline / status" | jobseeker agent → `server/audit.mjs` + summarize |
