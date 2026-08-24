@@ -15,8 +15,12 @@ config/*.bak*
 config/*.backup*
 config/*.orig
 templates/cv/
+templates/cover/
+!templates/cover/cover.cls
+!templates/cover/cover_master.tex
 templates/answers.md
 templates/*.bak*
+output/
 
 
 # Design working files (a seeded canvas is a multi-megabyte generated payload). Kept on disk

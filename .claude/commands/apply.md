@@ -12,8 +12,13 @@ approval in this session.**
    - If `$ARGUMENTS` is a proposal id, `cat data/proposals/<id>.md`.
    - If it's a URL, use it directly.
    - If empty, list the top few `data/proposals/*.md` by `priority` and ask me which to apply to.
-   - Confirm `data/profile.md` is parsed (not the placeholder) and a `templates/cv/*.pdf` exists; if
-     not, tell me to run `/parse-cv` / upload a CV first.
+   - Confirm `data/profile.md` is parsed (not the placeholder) and a CV PDF exists; if not, tell me
+     to run `/parse-cv` / upload a CV first.
+   - **Prefer the tailored CV when available:** if a proposal id was given, check for
+     `output/<company>_<role>/cv.pdf` (the output of `/tailor`). If it exists, use that instead of
+     the generic `templates/cv/*.pdf`. Tell me which CV is being attached (tailored vs generic).
+     If no tailored version exists, suggest running `/tailor <proposal-id>` first, but proceed
+     with the generic CV if I say so.
 2. **Fill.** Invoke the **application-agent** (Mode FILL) with the proposal/URL. It opens the posting
    in my Chrome, fills what it can, attaches my CV, and returns: the tab id, what it filled, a
    numbered list of questions needing my input, and an approval id. It does NOT submit.

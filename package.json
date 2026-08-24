@@ -57,9 +57,11 @@
     "notes:site": "node scripts/release-notes.mjs --html ../jobseeker-site --limit 1",
     "mock:wizard": "node scripts/mock-wizard.mjs",
     "test:platform": "node scripts/test-platform.mjs",
-  "test:feedback": "node scripts/test-feedback.mjs",
+    "test:feedback": "node scripts/test-feedback.mjs",
     "bridge": "node server/bridge.mjs --serve",
     "test:bridge": "node scripts/test-bridge.mjs",
-    "diagnose": "node scripts/diagnose.mjs"
+    "diagnose": "node scripts/diagnose.mjs",
+    "compile:cv": "cd output/$DIR && pdflatex -interaction=nonstopmode cv.tex",
+    "compile:cover": "cd output/$DIR && pdflatex -interaction=nonstopmode cover.tex"
   }
 }
