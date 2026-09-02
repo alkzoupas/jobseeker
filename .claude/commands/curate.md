@@ -5,8 +5,9 @@ argument-hint: "[market name]"
 
 Find roles I can apply to. Arguments: `$ARGUMENTS`
 
-Search strategy (role-scout follows this): **LinkedIn first**, using my Chrome + my saved LinkedIn
-job **preferences/recommendations**; then **vendor careers sites via stateless web (WebFetch/WebSearch)
+Search strategy (role-scout follows this): **LinkedIn and DreamWorkHQ first**, using my Chrome + my
+saved LinkedIn job **preferences/recommendations** and DreamWorkHQ's AI-matching feed (scored
+against my resume); then **vendor careers sites via stateless web (WebFetch/WebSearch)
 or Playwright — NOT my Chrome session**. Do the vendor-site pass **whenever I ask manually** (or say
 "also check the vendor sites"), and to fill gaps for tier-1 vendors.
 
@@ -14,11 +15,17 @@ Steps:
 1. `cat data/criteria.md` and `ls data/markets/*.md`.
    - If `$ARGUMENTS` names a market, scope to that one.
    - If `data/profile.md` is still the placeholder, warn me CV-match will be 0 until `/parse-cv`, but proceed.
-2. **LinkedIn-first pass — ONE agent, run serially** (interactive): a single `role-scout` reads my
-   LinkedIn recommended/for-you jobs and searches my target roles/locations in Chrome (read-only).
-   Do **not** fan this pass out per market — Chrome is a serial resource (AGENT-RULES §13), and one
-   pass over my recommendations covers every market at once anyway.
-3. **Vendor careers-site pass — fan out, max 3 at a time.** If I asked for a manual/thorough run,
+2. **LinkedIn + DreamWorkHQ pass — ONE agent, run serially** (interactive): a single `role-scout` reads
+   my LinkedIn recommended/for-you jobs and DreamWorkHQ's matches feed, and searches my target
+   roles/locations, all in Chrome (read-only). Do **not** fan this pass out per market — Chrome is a
+   serial resource (AGENT-RULES §13), and one pass over my recommendations/matches covers every
+   market at once anyway.
+3. **HN "Who is hiring?" and the a16z Jobs Gmail digest — stateless, no Chrome, run once.** Every
+   `role-scout` invocation (whichever one runs first) also sweeps these: HN via
+   `scripts/hn-hiring.mjs`, and the a16z newsletter (`a16zjobs@substack.com`) via Gmail search,
+   watermarked so re-runs only look at new issues. No fan-out needed — one pass covers everything,
+   same as the LinkedIn pass.
+4. **Vendor careers-site pass — fan out, max 3 at a time.** If I asked for a manual/thorough run,
    run one `role-scout` **per market** over `data/markets/*.md`. This pass is stateless
    (WebFetch/WebSearch, no Chrome), so the agents don't contend; `server/record.mjs` locks and
    dedupes, so their concurrent writes are safe. But **never launch more than 3 subagents at once**
@@ -29,11 +36,10 @@ Steps:
    `node server/record.mjs list-boards` (AGENT-RULES §14) so they use the known ATS endpoints
    instead of re-hunting careers sites, and skip the companies already recorded as
    `browser`/`blocked`/`none`. Anything marked `skip: true` (dismissed by me,
-   or already applied) must not be re-proposed. Each scout also reads its own market's
-   `data/signals/<market>.md` if it exists — companies signal-scout flagged as likely to need this
-   leadership — as extra candidates to check a careers page for; it never turns a signal row into a
-   proposal without independently finding and verifying a live posting there (AGENT-RULES §16).
-4. When they finish, show me the **top proposals ranked by priority** (company · role · location ·
+   or already applied) must not be re-proposed. Some rows in `data/markets/<market>.md` are tagged
+   `MERGED from signal-scout watchlist` in their notes — treat them like any other row, checking for
+   a live posting rather than proposing from the row alone.
+5. When they finish, show me the **top proposals ranked by priority** (company · role · location ·
    priority) and the total count, and note that they're on the dashboard (Curated proposals) for
    me to review and approve. Say explicitly if any market was skipped or a scout bailed.
 

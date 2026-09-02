@@ -8,16 +8,10 @@ Run my full daily job-search pipeline. Arguments: `$ARGUMENTS`
 **Depth.** Default (no arguments) is the **daily** pass — keep it fast, skip fresh markets, and do
 the vendor-careers-site sweep only for tier-1 gaps. If `$ARGUMENTS` contains **`deep`**, run the
 **weekly thorough** pass instead: refresh **every** market regardless of `stale`, run the vendor
-careers-site sweep across **all** tiers, re-validate **every** stored proposal URL
-(`node scripts/check-urls.mjs --all`, including dismissed/applied), and **also refresh demand
-signals** — run `signal-scout` for each market whose `data/signals/<market>.md` is missing or 7+ days
-old (same staleness rule as markets, same 3-agent cap, same Chrome serialization as the LinkedIn pass;
-AGENT-RULES §16). The **daily** pass does NOT run signal-scout — role-scout still reads whatever
-signals file already exists (stage 2), it just doesn't refresh it, to keep the daily run fast. A watch
-lane deliberately outside `data/criteria.md`'s `markets:` list (see AGENT-RULES §16) is never touched
-by either depth — it only refreshes when the user runs `/signals <that lane>` by name. Everything else
-below is identical — same guardrails, same approval queuing. This is designed to run unattended (from
-the local scheduler) and leave a curated, prioritized queue waiting for me — **without applying to
+careers-site sweep across **all** tiers, and re-validate **every** stored proposal URL
+(`node scripts/check-urls.mjs --all`, including dismissed/applied). Everything else below is
+identical — same guardrails, same approval queuing. This is designed to run unattended (from the
+local scheduler) and leave a curated, prioritized queue waiting for me — **without applying to
 anything or sending any message on its own.** Anything that needs my go-ahead is QUEUED as an approval,
 not executed.
 
@@ -80,21 +74,17 @@ Its `markets` array gives each market's `last_reviewed`, `age_days`, and a `stal
 - if `stale` → **prioritization-agent** for that market, then **role-scout** for that market;
 - if not stale → skip straight to **role-scout** for that market.
 
-**Deep runs only:** also check each market's signals file staleness (no `audit.mjs` field for this —
-use `stat -f %m data/signals/<slug>.md 2>/dev/null` or just check whether the file exists and read
-its own dates). If missing or 7+ days old, add **signal-scout** for that market to the same chain
-(before role-scout, so a freshly-written signal file is available for role-scout to read in the same
-run) — still inside the 3-agent cap, still one Chrome-driving agent at a time across the whole run
-(signal-scout's Wellfound/Otta steps queue behind the LinkedIn pass, not alongside it).
-
 Launch the chains concurrently **but never more than 3 agents at a time** — with 4+ markets that
 means waves: start 3 chains, and as each one reports back start the next queued market. Reconcile
 (stage 3) counts against the same budget of 3, so hold a slot for it rather than launching every
 market first.
 
-Remember the Chrome rule: run the LinkedIn pass **once**, serially
-(it covers all markets at the same time via my saved preferences/recommendations); the per-market
-vendor-careers-site passes are stateless and parallel.
+Remember the Chrome rule: run role-scout's Chrome-driving pass **once**, serially — LinkedIn,
+DreamWorkHQ, Wellfound, and Otta (if the user has an account) all run in that single serialized slot
+and cover all markets at once (LinkedIn/DreamWorkHQ via saved preferences/recommendations, Wellfound/
+Otta via keyword+role search across the target domains). HN "Who is hiring?" and the a16z Jobs Gmail
+digest are mechanical/stateless (no Chrome) and can run per-market if term vocabulary differs. The
+per-market vendor-careers-site passes are stateless and parallel.
 
 Before scouting, give the scouts the dedupe set in one call rather than making each of them read
 every proposal and application file:

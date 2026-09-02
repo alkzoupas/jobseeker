@@ -19,9 +19,8 @@ agents use. **Read the relevant playbook file for the detailed steps**, then exe
 |---|---|---|
 | email / calendar updates | `.claude/agents/inbox-tracker.md` | Gmail inbox **and** sent; create calendar events |
 | WhatsApp / LinkedIn message updates | `.claude/agents/chat-tracker.md` | drive their Chrome; read-only; term-search WhatsApp |
-| find roles to apply to | `.claude/agents/role-scout.md` | scoped to `data/markets/*.md` + `data/profile.md` |
+| find roles to apply to | `.claude/agents/role-scout.md` | scoped to `data/markets/*.md` + `data/profile.md`; LinkedIn, DreamWorkHQ, Wellfound, WeWorkRemotely, Otta, HN "Who is hiring?", the a16z Jobs Gmail digest, plus vendor sites |
 | research/rank vendors for a market | `.claude/agents/prioritization-agent.md` | one market at a time |
-| find companies who'll need this role but have no opening yet | `.claude/agents/signal-scout.md` | HN/Wellfound/WWR/Otta; writes `data/signals/<market>.md`, never a proposal (AGENT-RULES §16) |
 | draft & send a follow-up | `.claude/agents/comms-agent.md` | draft → get approval → send |
 | apply to a proposal | `.claude/agents/application-agent.md` | Chrome; stop-points; submit only after approval |
 | health / dedup / what's wrong | `.claude/agents/supervisor.md` | read-only audit via `server/audit.mjs` |
