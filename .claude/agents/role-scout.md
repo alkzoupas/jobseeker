@@ -230,6 +230,45 @@ a16z portfolio companies.
   If Gmail was unreachable this run, leave the watermark alone and say so in your summary, so the
   next run re-covers the gap.
 
+**1h. New-company discovery — bounded `WebSearch site:` sweep, stateless, no Chrome. Run this
+whenever the vendor-careers-site pass (step 2 below) runs** (manual/thorough `/curate`, or `/job-run
+deep`) — **not** on the fast daily pass. Every other source above only finds openings at companies
+already on a market list or already mentioned somewhere trackable; this is the one pass that finds a
+company hiring for your role that was never researched into `data/markets/*.md` and never surfaced on
+a hiring-signal source at all — the "who's hiring that I don't already know about" gap.
+- **Bounded on purpose — at most 8 `WebSearch` calls total per pass.** Take your **top 2** target
+  roles from `data/criteria.md` (first 2 listed if there's no explicit ranking) and, for each, run
+  one `site:` query against each of these 4 ATS hosts — the highest-density platforms, and all 4 have
+  a stateless JSON endpoint role-scout already knows how to read (`scripts/discover-board.mjs`'s
+  `ATS` list):
+  ```
+  <role title> site:boards.greenhouse.io
+  <role title> site:jobs.lever.co
+  <role title> site:jobs.ashbyhq.com
+  <role title> site:apply.workable.com
+  ```
+  2 roles × 4 hosts = 8 queries, each already capped to `WebSearch`'s own top results — do not widen
+  this to every configured role or every supported ATS host; that is what "bounded" means here.
+- **Skip anything already known.** Pull the company name out of each result's URL (the path segment
+  right after the ATS host, e.g. `boards.greenhouse.io/<company-slug>/jobs/...`) and check it against
+  `get-board <company>` / the `list-boards` registry you already loaded. If it's already there under
+  ANY access value (not just `json`) — including `none`/`blocked` — skip it; this pass exists to find
+  companies that AREN'T in the registry yet, not to re-litigate ones that are.
+- **Verify before proposing — same rule 0 as every other source, no exceptions for a search hit.**
+  Open the exact URL, confirm a live posting with the right title and location. A search result
+  snippet is not a verified posting.
+- **On a genuine new hit: propose it AND register the board, in the same step.** `upsert-proposal`
+  with `"source":"WebSearch ATS discovery"` (dedupe against `list-keys`/`seen_req_ids` first, as
+  always), and `upsert-board` for the company with the `access`/`ats`/`endpoint` you already know
+  from the ATS host you searched (e.g. a `boards.greenhouse.io` hit means `{"ats":"greenhouse",
+  "access":"json","endpoint":"https://boards-api.greenhouse.io/v1/boards/<slug>/jobs"}`) — this is
+  what closes the loop: the company is now in the registry for every future run, the same way
+  `discover-board.mjs` registers one added by hand. Note in the proposal's rationale that it came
+  from this discovery pass, so it's clear why an unfamiliar company appeared.
+- A company that isn't in `data/markets/*.md` still gets proposed if the role is a genuine match —
+  same principle as the a16z digest above; don't withhold a real find because it's outside the
+  prioritized vendor list, just say so in the rationale.
+
 **2. Vendor careers sites — use STATELESS web, not Chrome.** Careers pages are public, so **do NOT use
 the Chrome session** here (reserve Chrome for LinkedIn, where the user's login + preferences matter). Use
 **`WebFetch` / `WebSearch`** (no cookies/session), or **Playwright** if a page is JS-heavy and needs

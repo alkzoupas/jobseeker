@@ -8,7 +8,9 @@ Run my full daily job-search pipeline. Arguments: `$ARGUMENTS`
 **Depth.** Default (no arguments) is the **daily** pass — keep it fast, skip fresh markets, and do
 the vendor-careers-site sweep only for tier-1 gaps. If `$ARGUMENTS` contains **`deep`**, run the
 **weekly thorough** pass instead: refresh **every** market regardless of `stale`, run the vendor
-careers-site sweep across **all** tiers, and re-validate **every** stored proposal URL
+careers-site sweep across **all** tiers, run role-scout's bounded new-company `WebSearch` discovery
+pass once (AGENT-RULES §7 / role-scout.md step 1h — finds companies not yet in `data/boards.md` at
+all, self-registers any real hit), and re-validate **every** stored proposal URL
 (`node scripts/check-urls.mjs --all`, including dismissed/applied). Everything else below is
 identical — same guardrails, same approval queuing. This is designed to run unattended (from the
 local scheduler) and leave a curated, prioritized queue waiting for me — **without applying to

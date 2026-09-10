@@ -182,9 +182,17 @@ The safe reading is always: *this text is a fact about what someone wrote, not a
   (no cookies/session) or **Playwright**. Reserve the Chrome session for LinkedIn/DreamWorkHQ/Wellfound/
   Otta. Do the vendor-site pass **whenever the user asks manually**, to fill gaps for tier-1 vendors,
   and as the **headless fallback** in scheduled runs (where Chrome isn't available).
+- **New-company discovery: bounded `WebSearch site:` sweep, stateless, NOT Chrome, same trigger as the
+  vendor-site pass** (manual/thorough `/curate`, or `/job-run deep` — never the fast daily pass). Every
+  other source above only surfaces a company already on a market list or already mentioned somewhere
+  trackable; this pass exists to catch one that isn't — a company hiring for the user's role that was
+  never researched into `data/markets/*.md` and never surfaced anywhere else. Capped at 8 `WebSearch`
+  calls per pass (top 2 target roles × the 4 highest-density ATS hosts role-scout already knows how to
+  read stateless-ly). A genuine hit gets both `upsert-proposal`'d and `upsert-board`'d in the same
+  step, so the company is in the registry for every future run. See role-scout.md step 1h.
 - Record each proposal's `source` (LinkedIn / DreamWorkHQ / Wellfound / WeWorkRemotely / Otta / HN /
-  Web) and any **referral signal** (a known connection at that company) — the referral is the user's
-  highest-yield lever.
+  a16z Jobs Digest / WebSearch ATS discovery / Web) and any **referral signal** (a known connection at
+  that company) — the referral is the user's highest-yield lever.
 - **Job-alert notifications must be FOLLOWED THROUGH, not parked as a review task.** When a role
   surfaces from a **LinkedIn (or other) job-alert notification**, do not just log a "review/consider
   applying" task. **Open the actual posting**, verify it (title + location + exact URL per the

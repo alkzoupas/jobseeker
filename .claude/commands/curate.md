@@ -28,7 +28,11 @@ Steps:
 4. **Vendor careers-site pass — fan out, max 3 at a time.** If I asked for a manual/thorough run,
    run one `role-scout` **per market** over `data/markets/*.md`. This pass is stateless
    (WebFetch/WebSearch, no Chrome), so the agents don't contend; `server/record.mjs` locks and
-   dedupes, so their concurrent writes are safe. But **never launch more than 3 subagents at once**
+   dedupes, so their concurrent writes are safe. **Same manual/thorough trigger also runs
+   role-scout's new-company discovery pass (step 1h)** — a bounded `WebSearch site:` sweep across
+   `boards.greenhouse.io`/`jobs.lever.co`/`jobs.ashbyhq.com`/`apply.workable.com` for companies not
+   yet in `data/boards.md` at all; only one scout needs to run it once, not per market. But **never
+   launch more than 3 subagents at once**
    (AGENT-RULES §13 — a 7-way fan-out crashed the machine on 2026-07-29); with more markets than
    that, run them in waves and start the next as one finishes.
    Give the scouts the dedupe set once — `node server/record.mjs list-keys` — instead of each of

@@ -49,6 +49,9 @@ search, and tells you the few things that need you today.**
   a stateless HTTP request can read it (`json` / `html` / `browser` / `blocked` / `none`). Negative
   results are recorded, so effort is never repeated.
 - **FR-2.4** Escalate to a browser when a stateless fetch is blocked (403/401/JS-rendered).
+- **FR-2.5** Periodically discover companies that aren't in the careers-board registry at all yet
+  (not just re-checking known ones), via a bounded `WebSearch` sweep against known ATS hosts, on
+  manual/thorough curation runs — self-registering any genuine hit into the board registry.
 
 ### FR-3 — Deduplication
 - **FR-3.1** Never re-propose a role already applied to or dismissed.
