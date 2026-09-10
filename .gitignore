@@ -36,3 +36,6 @@ PRODUCT.md
 # Private dev tooling: scripts for resetting this Mac's install and re-running the setup wizard.
 # Personal to one machine and not part of the product.
 JobSeeker-devscripts/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
