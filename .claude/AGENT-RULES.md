@@ -538,7 +538,11 @@ So, before writing `access: none`:
   or a 5xx, or fails TLS: record it as `blocked` with the status, then **open it in the browser**
   instead of moving on. Only when the browser also fails is it genuinely uncovered — say so with both
   failures named.
-  - `none` — **no discoverable board exists. Do not go looking again** without new information.
+  - `none` — **no discoverable board exists. Do not go looking again** until it goes stale. A
+    `none`/`blocked` verdict expires after 90 days — `node server/record.mjs list-boards
+    needs-recheck` returns exactly the ones old enough to be worth re-probing with
+    `scripts/discover-board.mjs`. Re-probing a fresh (non-stale) row is the waste this rule exists
+    to prevent; re-probing a stale one is how a company that later stands up a board gets found.
   - `manual` — **the user pasted this URL in the dashboard because we could not find it.** Try it
     **FIRST**, before anything else in the run: it is a human unblocking a dead end, so it is the
     highest-value lead in the registry. Then **reclassify it** — `upsert-board` with the real

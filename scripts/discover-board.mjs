@@ -4,8 +4,9 @@
 // next scout run to go hunting.
 //
 // This is the cheap, deterministic half of what role-scout does by hand: derive candidate ATS slugs
-// from the company name and probe the four boards that expose stateless JSON, then fall back to
-// looking for a careers page. It does NOT try to be clever — a miss here is fine and expected, and
+// from the company name and probe the boards that expose stateless JSON (Greenhouse, Lever, Ashby,
+// SmartRecruiters, Workable, Breezy, Recruitee, Pinpoint), then fall back to looking for a careers
+// page. It does NOT try to be clever — a miss here is fine and expected, and
 // it is recorded as a miss so the company surfaces in the dashboard's "website not found" queue for
 // a human to paste the real URL. Guessing and recording a wrong endpoint would be worse than
 // admitting ignorance (AGENT-RULES §12).
@@ -90,7 +91,39 @@ const ATS = [
     // those an empty board is genuinely an empty board and still worth recording.
     requirePostings: true,
   },
+  {
+    name: "workable",
+    url: (s) => `https://apply.workable.com/api/v1/widget/accounts/${s}`,
+    count: (j) => (Array.isArray(j?.jobs) ? j.jobs.length : null),
+    // 404s properly for an unknown account (verified against a nonsense slug), same as Greenhouse.
+  },
+  {
+    name: "breezy",
+    url: (s) => `https://${s}.breezy.hr/json`,
+    count: (j) => (Array.isArray(j) ? j.length : null),
+    // 404s properly for an unknown subdomain (verified against a nonsense slug).
+  },
+  {
+    name: "recruitee",
+    url: (s) => `https://${s}.recruitee.com/api/offers/`,
+    count: (j) => (Array.isArray(j?.offers) ? j.offers.length : null),
+    // 404s properly for an unknown subdomain (verified against a nonsense slug).
+  },
+  {
+    name: "pinpoint",
+    url: (s) => `https://${s}.pinpointhq.com/postings.json`,
+    count: (j) => (Array.isArray(j?.data) ? j.data.length : null),
+    // 404s properly for an unknown subdomain (verified against a nonsense slug). Pinpoint tenants
+    // are often custom subdomains rather than the company name (e.g. "workwithus", not "pinpoint"),
+    // so this slug guess will miss more often than the others — still cheap and harmless to try.
+  },
 ];
+// Deliberately NOT probed: BambooHR's `<slug>.bamboohr.com/careers/list` now 302s to the marketing
+// site for BOTH a real and a nonsense subdomain (verified) — no way to tell a hit from a miss without
+// a browser, so recording it here would risk a fabricated endpoint (AGENT-RULES §12). Rippling
+// (`ats.rippling.com/<slug>/jobs`) and Join.com (`join.com/companies/<slug>`) are confirmed real,
+// distinguishable-by-404 careers URLs, but both serve a JS-rendered SPA shell with no public JSON —
+// they belong in the `browser` queue if `probeCareers` below turns them up, not in this ATS list.
 
 async function probeATS(company) {
   const tried = [];
@@ -229,7 +262,7 @@ async function main() {
         ats: "none",
         endpoint: "",
         access: "none",
-        notes: `AUTO-DISCOVERY ${new Date().toISOString().slice(0, 10)} FOUND NOTHING — every probe 404'd or the host did not resolve; nothing refused us, so a browser is unlikely to help either. Tried ${ats.tried.length} ATS probes (greenhouse/lever/ashby/smartrecruiters across ${slugs(company).length} slug variants) and ${careers.tried.length} careers-page paths. Paste the real careers URL in Settings.`,
+        notes: `AUTO-DISCOVERY ${new Date().toISOString().slice(0, 10)} FOUND NOTHING — every probe 404'd or the host did not resolve; nothing refused us, so a browser is unlikely to help either. Tried ${ats.tried.length} ATS probes (${ATS.map((a) => a.name).join("/")} across ${slugs(company).length} slug variants) and ${careers.tried.length} careers-page paths. Paste the real careers URL in Settings.`,
       };
     }
   }

@@ -76,11 +76,18 @@ You are **role-scout**. You turn the prioritized company lists into concrete, ra
   returns every company whose careers board has already been investigated: its `ats`, the exact
   `endpoint`, and an **`access`** verdict — `json` (stateless JSON works, cheapest, do these first),
   `html` (stateless fetch works), `browser` (JS-rendered/session-walled), `blocked` (401/402/403/429/5xx
-  or TLS — **a board that EXISTS and refuses scripts**), `none` (**no board exists, don't go looking**),
-  `manual` (**the user pasted this URL for you — try it FIRST, then reclassify it**).
+  or TLS — **a board that EXISTS and refuses scripts**), `none` (**no board exists — don't go looking
+  again until it goes stale**, see below), `manual` (**the user pasted this URL for you — try it
+  FIRST, then reclassify it**).
   Use `get-board <company>` for a single lookup. **Do not hunt for a careers site you already have
-  an answer for, and do not re-investigate a `none` company** — that is the single biggest waste of a
-  scouting run. See AGENT-RULES §14.
+  a fresh answer for** — that is the single biggest waste of a scouting run. See AGENT-RULES §14.
+- **A `none`/`blocked` verdict expires after 90 days, not never.** `node server/record.mjs list-boards
+  needs-recheck` returns exactly the companies whose `none`/`blocked` row is old enough to be worth
+  re-probing (`get-board` also flags a single company's row with `stale: true` once it qualifies).
+  Re-run `node scripts/discover-board.mjs "<company>" [market]` on anything this queue returns —
+  companies do stand up new boards and unblock scripts over time, and a permanent verdict would mean
+  never finding out. Do NOT re-probe a fresh (non-stale) `none`/`blocked` row; that queue exists
+  precisely so you don't have to guess which ones are worth retrying.
 - **`blocked` and `browser` are a WORK QUEUE, not a write-off.** An HTTP 401/402/403/429/5xx or a TLS
   failure proves a board is there and refusing your script. **Use `browser-do.mjs`, not the
   Chrome MCP tools** — `mcp__claude-in-chrome__*` exists only in an interactive session and is absent

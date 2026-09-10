@@ -24,7 +24,7 @@
 //   node server/record.mjs list-spend [--month YYYY-MM] [--limit n] -> month total + recent runs
 //   node server/record.mjs get-watermark <channel>      -> last swept timestamp for gmail|whatsapp|linkedin
 //   node server/record.mjs set-watermark <channel> <iso> [note]
-//   node server/record.mjs list-boards [access|needs-browser] [--include-dismissed] -> the registry
+//   node server/record.mjs list-boards [access|needs-browser|needs-recheck] [--include-dismissed] -> the registry
 //   node server/record.mjs dismiss-board '<company>' [reason] -> stop surfacing a board
 //   node server/record.mjs restore-board '<company>'          -> undo that
 //   node server/record.mjs get-board <company>          -> one company's board + how to read it
@@ -1056,7 +1056,8 @@ async function setWatermark(channel, timestamp, note) {
 //   html    — stateless HTML fetch works, needs parsing
 //   browser — JS-rendered or session-walled; needs Chrome, so it is useless to a headless run
 //   blocked — actively rejects scripted access (403 / 500 / TLS mismatch)
-//   none    — no discoverable board exists (do not go looking again)
+//   none    — no discoverable board exists. Not looked into again until it goes stale (see
+//             RECHECK_AFTER_DAYS below) — `list-boards needs-recheck` surfaces it once it is.
 //   manual  — the USER pasted this URL in the dashboard because we could not find it. Not yet
 //             verified by a scout: try it FIRST next run, then reclassify to json/html/browser/…
 //   pending — a company was just added and scripts/discover-board.mjs is probing for its board.
@@ -1115,7 +1116,22 @@ async function getBoard(company) {
   const key = boardKey(canonicalCompany(company));
   const hit = rows.find((r) => boardKey(canonicalCompany(r.company)) === key);
   if (!hit) return { found: false, company, hint: "unknown board — discover it, then upsert-board" };
-  return { found: true, ...hit };
+  return { found: true, ...hit, stale: isStale(hit) };
+}
+
+// A `none`/`blocked` verdict used to be permanent — AGENT-RULES §14 said "do not go looking again" —
+// but that means a company that later stands up a board (or unblocks) stays invisible forever unless
+// someone notices by hand. Instead, that verdict expires after RECHECK_AFTER_DAYS: `list-boards
+// needs-recheck` surfaces it again so a scout can re-run discover-board.mjs, exactly the same way
+// `needs-browser` already surfaces `blocked`/`browser` rows as a work queue rather than a dead end.
+const RECHECK_AFTER_DAYS = 90;
+function daysSince(dateStr) {
+  const d = Date.parse(dateStr);
+  if (Number.isNaN(d)) return Infinity; // no/garbled date -> treat as arbitrarily stale
+  return (Date.now() - d) / 86_400_000;
+}
+function isStale(row) {
+  return (row.access === "none" || row.access === "blocked") && daysSince(row.last_verified) >= RECHECK_AFTER_DAYS;
 }
 
 async function listBoards(access, { includeDismissed = false } = {}) {
@@ -1125,13 +1141,16 @@ async function listBoards(access, { includeDismissed = false } = {}) {
   const rows = includeDismissed ? all : all.filter((r) => !String(r.dismissed || "").trim());
   // `needs-browser` is the queue that matters operationally: boards that exist but refuse scripted
   // access (blocked) or are JS-rendered (browser). They are NOT dead ends — they are work waiting
-  // for a Chrome-enabled run. See AGENT-RULES §12.
+  // for a Chrome-enabled run. See AGENT-RULES §12. `needs-recheck` is the analogous queue for a
+  // `none`/`blocked` verdict old enough that it might no longer be true (see RECHECK_AFTER_DAYS above).
   const filtered =
     access === "needs-browser"
       ? rows.filter((r) => r.access === "blocked" || r.access === "browser")
-      : access
-        ? rows.filter((r) => r.access === access)
-        : rows;
+      : access === "needs-recheck"
+        ? rows.filter(isStale)
+        : access
+          ? rows.filter((r) => r.access === access)
+          : rows;
   // Compact by design: a scout loads this once at start instead of reading prose per company.
   return {
     count: filtered.length,
@@ -1143,6 +1162,7 @@ async function listBoards(access, { includeDismissed = false } = {}) {
       access: r.access,
       volatile: r.volatile,
       last_verified: r.last_verified,
+      stale: isStale(r),
       notes: r.notes,
     })),
   };
