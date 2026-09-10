@@ -354,7 +354,27 @@ async function main() {
       throw e;
     });
 
-    const waTab = ctx.findTab("web.whatsapp.com");
+    // WhatsApp Web can have more than one tab open on the same host: a stale duplicate that
+    // lost the single-session race shows "WhatsApp is open in another window" and has no chat
+    // list at all, while the live one does. ctx.findTab just returns the first URL match, so on a
+    // machine with a leftover duplicate tab it can silently pick the dead one every run and report
+    // "chat list not found" forever. Probe every web.whatsapp.com tab and use the first that
+    // actually has the chat list DOM (or the QR canvas, so a genuinely logged-out session is still
+    // reported rather than skipped) instead of trusting tab order.
+    const waCandidates = ctx.tabs.filter((t) => t.url.includes("web.whatsapp.com"));
+    let waTab = waCandidates[0] || null;
+    if (waCandidates.length > 1) {
+      for (const cand of waCandidates) {
+        const ok = await ctx
+          .evalInTab(
+            cand,
+            "!!(document.querySelector(\"#pane-side\") || document.querySelector(\x27[aria-label=\"Chat list\"]\x27) || document.querySelector(\x27canvas[aria-label*=\"can\"]\x27))"
+          )
+          .then((r) => String(r).trim() === "true")
+          .catch(() => false);
+        if (ok) { waTab = cand; break; }
+      }
+    }
     const liTab = ctx.findTab("linkedin.com/messaging");
 
     // Open exactly the threads whose contents will be kept — no more. Anything ignored by rule,

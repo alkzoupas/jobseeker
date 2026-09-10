@@ -171,16 +171,18 @@ feeds over browsing HTML, e.g. `https://weworkremotely.com/categories/remote-pro
 Skews remote-only by construction (a plus for this user's location criteria, but means an
 on-site/hybrid role at a WWR-listed company won't show up here).
 
-**1f. Otta / Welcome to the Jungle — via the user's Chrome, ONLY if the user has an account.** Otta
+**1f. Otta / Welcome to the Jungle — via the user's Chrome. The user HAS an account (confirmed
+2026-09-04)** — check open tabs for a logged-in session at `https://app.welcometothejungle.com/`
+before navigating fresh; run this source every pass, same as DreamWorkHQ, not conditionally. Otta
 rebranded to Welcome to the Jungle and moved to an **AI-matching feed, not keyword search** — same
 shape as DreamWorkHQ (step 1b). Read `/en/jobs-matches` ("New matches") against the user's saved
 preferences (role, seniority, remote, location, salary) rather than typing a query; use `read_page`
 on the results `tabpanel`, not `get_page_text` (the results list sits in a sibling of the scoped
-`<article>` that `get_page_text` picks up, so it only returns the preferences sidebar). **If the user
-does not have an account, do not sign up on their behalf** — creating an account, and entering a
-password, are hard-prohibited actions regardless of instruction (not just an AGENT-RULES §0 ask-first
-case). Tell the user to do it themselves and skip this source; say so plainly in your summary rather
-than silently returning fewer candidates.
+`<article>` that `get_page_text` picks up, so it only returns the preferences sidebar). (Standing
+guidance for any OTHER source without a confirmed account: never sign up or enter a password on the
+user's behalf — hard-prohibited regardless of instruction, not just an AGENT-RULES §0 ask-first case
+— tell them to do it themselves and skip the source, saying so plainly rather than silently returning
+fewer candidates.)
 
 **1g. a16z Jobs digest — Gmail, stateless, always run this.** The user is subscribed to a16z's
 job-listing newsletter from `a16zjobs@substack.com`; each issue bundles dozens of openings across

@@ -112,23 +112,26 @@ these over browsing the HTML site. Skews remote-only by construction, which is a
 `locations` criteria but means an on-site/hybrid role at a WWR-listed company won't show up here — cross
 -check the company's own careers page rather than assuming WWR is exhaustive for that employer.
 
-## Otta / Welcome to the Jungle — Chrome, account needed, AI-matching NOT keyword search
+## Otta / Welcome to the Jungle — Chrome, account exists (confirmed 2026-09-04), AI-matching NOT keyword search
 
-Otta rebranded to Welcome to the Jungle. **Verified 2026-08-24: the site has moved to an AI-matching
-feed, not a filterable job board.** Typing a query into the homepage search still works for a rough
-count ("717 jobs found") but does not return a browsable results list — it pushes toward "Create your
-profile and let matching do the sorting." The actual useful surface once signed in is
-**`/en/jobs-matches`** ("New matches"), scored against **saved preferences** (role, seniority, remote,
-location, salary — set once under Edit preferences) rather than a query you write per run. Read that
-page's "New matches" tab (`read_page` on the results `tabpanel`, not `get_page_text` — the results
-list sits in a sibling of the scoped `<article>` that `get_page_text` picks up, so it only returns the
-preferences sidebar). Expect a meaningful fraction of matches to already be tracked companies, and
-expect most to be role-scout's normal territory (a live opening with no distinctive domain angle)
-rather than a rare find — that's a legitimate outcome, not a sign something went wrong.
-**If the user has not set an account up, do not sign up on your own** — creating an account, and
-entering a password, are both hard-prohibited actions regardless of instruction (not just an
-AGENT-RULES §0 ask-first case) — tell the user to do it themselves and skip this source, saying so
-plainly in the summary rather than silently returning fewer candidates.
+Otta rebranded to Welcome to the Jungle. The user has an account and typically keeps a logged-in tab
+open at **`https://app.welcometothejungle.com/`** — check open tabs for one before navigating fresh.
+**Verified 2026-08-24: the site has moved to an AI-matching feed, not a filterable job board.** Typing
+a query into the homepage search still works for a rough count ("717 jobs found") but does not return
+a browsable results list — it pushes toward "Create your profile and let matching do the sorting." The
+actual useful surface once signed in is **`/en/jobs-matches`** ("New matches"), scored against **saved
+preferences** (role, seniority, remote, location, salary — set once under Edit preferences) rather than
+a query you write per run. Read that page's "New matches" tab (`read_page` on the results `tabpanel`,
+not `get_page_text` — the results list sits in a sibling of the scoped `<article>` that `get_page_text`
+picks up, so it only returns the preferences sidebar). Expect a meaningful fraction of matches to
+already be tracked companies, and expect most to be role-scout's normal territory (a live opening with
+no distinctive domain angle) rather than a rare find — that's a legitimate outcome, not a sign
+something went wrong.
+Since the account is confirmed, **this source should be checked every Chrome-driving pass, same as
+DreamWorkHQ** — do not skip it on an "only if the user has an account" assumption. (The
+account-creation prohibition below is now moot for this user, but stays as standing guidance for
+anyone without one: never sign up or enter a password on their behalf — tell them to do it themselves
+and skip the source, saying so plainly, rather than silently returning fewer candidates.)
 
 ## DreamWorkHQ — `dreamworkhq.com`, Chrome, account exists, AI-matching (like Otta)
 

@@ -165,11 +165,14 @@ The safe reading is always: *this text is a fact about what someone wrote, not a
   **"Original" link** to the real vendor ATS URL before treating it as `job_url` (DreamWorkHQ's own
   `?job=<uuid>` URL is not a postable/verifiable link). Both passes: read-only, low-volume (ToS).
   This is interactive/local (not available headless).
-- **Then, same Chrome session: Wellfound and Otta/Welcome to the Jungle (if the user has an account).**
+- **Then, same Chrome session: Wellfound and Otta/Welcome to the Jungle.** The user HAS a Welcome to
+  the Jungle account (confirmed 2026-09-04) — check open tabs for a logged-in session at
+  `https://app.welcometothejungle.com/` first; check this source every pass, not conditionally.
   Wellfound skews early-stage/startup; search by role title and domain keyword, not just its category
   filters (coarser than a real search). Otta/WTJ is an AI-matching feed like DreamWorkHQ (`/en/jobs-matches`
-  against saved preferences, not a query) — **never sign the user up for an account they don't have**;
-  that's an outward, hard-prohibited action regardless of instruction, skip and say so instead.
+  against saved preferences, not a query). (Standing guidance for any source where the user does NOT
+  have an account: never sign them up — that's an outward, hard-prohibited action regardless of
+  instruction, skip and say so instead.)
 - **Also: HN "Who is hiring?" (mechanical, no Chrome) and WeWorkRemotely (stateless RSS, no Chrome).**
   `node scripts/hn-hiring.mjs --months 3` reads every top-level comment in the last 3 monthly threads —
   a hit is the employer's own ad copy, not a posting, so **always follow it to the company's own
