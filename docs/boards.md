@@ -70,6 +70,100 @@ reported the gap instead of closing it.
   gone. `node scripts/check-urls.mjs` screens for these patterns automatically — run it before
   re-surfacing stored proposals.
 
+## HN "Who is hiring?" — `scripts/hn-hiring.mjs`, no account, fully mechanical
+
+Monthly thread, Algolia API (`hn.algolia.com/api/v1`), no key, no scraping. The script reads **every**
+top-level comment in the threads it's given — not a sample — because a hand skim of a 300-500 comment
+thread is indistinguishable from a thorough miss (same failure class as AGENT-RULES §13b). Run it
+directly; it prints candidates, writes nothing:
+```
+node scripts/hn-hiring.mjs --months 3                    # default: last 3 threads
+node scripts/hn-hiring.mjs --months 6 --remote-only
+node scripts/hn-hiring.mjs --terms "fraud,abuse,integrity" --json
+```
+**A hit here is an ad, not a posting.** The comment is the employer's own copy, sometimes months old,
+and it is not a live req — never cite an HN comment as a job URL. Follow every candidate to the
+company's own careers page and run the full verification checklist (role-scout rule 0) before
+proposing anything.
+
+**Term vocabulary is graded, not flat.** `DEFAULT_TERMS` in the script splits into strong terms
+(unambiguous outside this domain: "trust and safety", "anti-abuse", "content moderation", "aml/kyc")
+and `WEAK_TERMS` (ambiguous alone: "risk", "integrity", "moderation", "bots", "ato", "adversarial",
+"threat intelligence", "identity verification", "chargeback" — these fired on a cardiac-imaging
+startup and a nuclear-risk think tank in testing). Use `--terms` to swap in a market-specific
+vocabulary for markets that aren't T&S-flavored (e.g. an ML-leadership-shortage vocabulary was used
+for the Machine Learning market: `ml platform`, `ml infra`, `applied ml`, `founding ml`, `head of
+machine learning`, `llm infrastructure`).
+
+## Wellfound (formerly AngelList Talent) — Chrome, account exists
+
+The user has a logged-in session in their normal Chrome profile. Browse read-only, same discipline as
+role-scout's LinkedIn pass (AGENT-RULES §7): low-volume, don't deep-paginate, capture company + role
++ the exact listing URL, never fabricate from a snippet. Wellfound skews early-stage/startup, which is
+useful on its own for a `company_size_max`-constrained search (see `data/criteria.md`) even before
+reading the role. Search by keyword (role/domain terms) and by role title, not just by market/category
+filters — the category taxonomy is coarser than a real search.
+
+## WeWorkRemotely — no account, mostly stateless
+
+Public board, `weworkremotely.com`. Category RSS feeds work over plain fetch
+(`https://weworkremotely.com/categories/remote-programming-jobs.rss` etc.) — cheap, no session, prefer
+these over browsing the HTML site. Skews remote-only by construction, which is a plus for the user's
+`locations` criteria but means an on-site/hybrid role at a WWR-listed company won't show up here — cross
+-check the company's own careers page rather than assuming WWR is exhaustive for that employer.
+
+## Otta / Welcome to the Jungle — Chrome, account needed, AI-matching NOT keyword search
+
+Otta rebranded to Welcome to the Jungle. **Verified 2026-08-24: the site has moved to an AI-matching
+feed, not a filterable job board.** Typing a query into the homepage search still works for a rough
+count ("717 jobs found") but does not return a browsable results list — it pushes toward "Create your
+profile and let matching do the sorting." The actual useful surface once signed in is
+**`/en/jobs-matches`** ("New matches"), scored against **saved preferences** (role, seniority, remote,
+location, salary — set once under Edit preferences) rather than a query you write per run. Read that
+page's "New matches" tab (`read_page` on the results `tabpanel`, not `get_page_text` — the results
+list sits in a sibling of the scoped `<article>` that `get_page_text` picks up, so it only returns the
+preferences sidebar). Expect a meaningful fraction of matches to already be tracked companies, and
+expect most to be role-scout's normal territory (a live opening with no distinctive domain angle)
+rather than a rare find — that's a legitimate outcome, not a sign something went wrong.
+**If the user has not set an account up, do not sign up on your own** — creating an account, and
+entering a password, are both hard-prohibited actions regardless of instruction (not just an
+AGENT-RULES §0 ask-first case) — tell the user to do it themselves and skip this source, saying so
+plainly in the summary rather than silently returning fewer candidates.
+
+## DreamWorkHQ — `dreamworkhq.com`, Chrome, account exists, AI-matching (like Otta)
+
+Aggregator, not a company board — role-scout source, added 2026-08-24 at the user's request. The
+user has an account and an uploaded resume; do not sign up or upload anything, just read.
+
+- **The logged-in home page (`https://www.dreamworkhq.com/`) IS the matches feed** ("Your Matches"),
+  no separate URL to navigate to. It's scored against the user's resume ("Matching against your
+  resume"), sorted best-match-first by default, and shows a saved location filter (set once by the
+  user, same idea as Otta's saved preferences) plus filter controls for match quality / posted-date /
+  work-setting / seniority / function / industry / comp. Don't touch the filter checkboxes unless the
+  user asked for a narrower pass — the default sort already surfaces the best matches first.
+- **Each card shows company, role, location(s), salary (when disclosed), and a match-quality
+  percentage** (e.g. "97%"). Treat this as a rough relevance signal, same weight as LinkedIn's
+  "N connections" or a Wellfound category tag — not a substitute for role-scout's own `role_fit`/
+  `cv_match` scoring.
+- **Cards load 25 at a time; scroll ("Scroll to load more matches") for more** rather than assuming
+  the first page is exhaustive — a market with 600+ matches has plenty past the fold, but fit drops
+  off fast, so stop once matches clearly stop being relevant (roughly the 85%+ tier, looser if few
+  strong hits) rather than mechanically paging through all of them.
+- **⚠️ The card's own URL is not the job URL.** Clicking a card sets the page URL to
+  `https://www.dreamworkhq.com/?job=<uuid>` — that's DreamWorkHQ's internal id for its detail panel,
+  not a link that resolves to anything outside DreamWorkHQ. **Use the "Original" link inside the
+  opened detail panel** — it points to the real posting on the vendor's own ATS (Greenhouse/Ashby/
+  Lever/etc., e.g. `job-boards.greenhouse.io/discord/jobs/8637688002`). Capture and verify **that**
+  URL as `job_url`, exactly like any other source (rule 0 in `.claude/agents/role-scout.md` — open
+  it, confirm title + location match).
+- **Heavy overlap with boards role-scout already checks directly** — DreamWorkHQ is an aggregator
+  over the same ATS ecosystem (Greenhouse, Ashby, Lever, …), not a distinct source of postings. A
+  Discord "Engineering Manager, Safety" card resolved to the exact same Greenhouse req already in
+  the registry as `prop_q8yppb` (dismissed) — dedupe against `list-keys`/`seen_req_ids` before
+  writing anything from here, same discipline as every other source.
+- If the page shows a login wall or an empty/zero-match state instead of the feed described above,
+  report it and fall back to the vendor-site pass — don't attempt to sign in.
+
 ## Check Point — `careers.checkpoint.com`
 
 Search: type into "Explore by Location, Role, or Department" (**`United Arab Emirates`**, and if

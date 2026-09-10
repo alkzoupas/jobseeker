@@ -11,7 +11,7 @@
 //   threads:  /api/v1/search_by_date?tags=story,author_whoishiring
 //   comments: /api/v1/search?tags=comment,story_<id>&hitsPerPage=1000
 //
-// READ-ONLY. It writes nothing to data/ — it prints candidates for signal-scout to verify at the
+// READ-ONLY. It writes nothing to data/ — it prints candidates for role-scout to verify at the
 // source. A hit here is a LEAD, never a proposal: the comment is the employer's own advert copy,
 // months old in the older threads, and it is not a live posting (AGENT-RULES 7).
 //

@@ -402,9 +402,17 @@ async function upsertProposal(input) {
     return params.length ? base + "?" + params.join("&") : base;
   };
   const inUrl = normUrl(input.job_url);
-  const match = existing.find(
-    (r) => appKey(r.data.company, r.data.role) === key || (inUrl && normUrl(r.data.job_url) === inUrl)
-  );
+  // Match by id FIRST when the caller supplied one. Without this, a partial-update call that passes
+  // only {id, ...a few fields} (no company/role) computes key = appKey("", "") — that matches nothing,
+  // so the code below fell through to "create new", reused the given id as the filename, and silently
+  // overwrote/blanked the existing record. Matching by id first makes this call safe to use as a
+  // partial update, the same way upsert-board already merges on its key regardless of which fields
+  // were passed.
+  const match =
+    (input.id && existing.find((r) => r.data.id === input.id)) ||
+    existing.find(
+      (r) => appKey(r.data.company, r.data.role) === key || (inUrl && normUrl(r.data.job_url) === inUrl)
+    );
   if (match) {
     const merged = { ...match.data, ...stripEmpty(input) };
     // Sticky decisions: re-curation must NOT resurrect a proposal the user dismissed, nor undo an
@@ -415,6 +423,14 @@ async function upsertProposal(input) {
     if (cur === "dismissed" || cur === "applied") merged.status = match.data.status;
     await writeFileAtomic(path.join(dir, match.file), stringifyFrontmatter(merged, input.rationale ?? match.body, PROPOSAL_ORDER));
     return { action: "updated", id: match.data.id, file: match.file };
+  }
+  // Belt-and-suspenders: an id that doesn't match any existing record but also has no company/role
+  // is almost certainly a typo'd id from a caller expecting a partial update, not a real new proposal.
+  // Refuse rather than silently creating a near-empty record under that filename.
+  if (input.id && !input.company && !input.role) {
+    throw new Error(
+      `upsert-proposal: id "${input.id}" not found and no company/role given — nothing to update or create.`
+    );
   }
   const id = input.id ? assertSafeId(input.id) : newId("prop");
   const data = {

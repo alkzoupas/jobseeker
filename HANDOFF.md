@@ -1,4 +1,12 @@
-# HANDOFF — demand-signal sourcing ("signals")
+# HANDOFF — demand-signal sourcing ("signals") — RETIRED 2026-08-24
+
+**This feature was reversed the same day it shipped.** The separate `signal-scout` agent,
+`/signals` command, and `data/signals/<market>.md` registry described below were folded straight
+into `role-scout` at the user's request — three of the four sources (Wellfound, WeWorkRemotely,
+Otta) list genuine postings just like DreamWorkHQ/LinkedIn, so the "watchlist, not a proposal"
+separation wasn't earning its complexity. See `.claude/AGENT-RULES.md` §16 (now a retirement note)
+and `.claude/agents/role-scout.md` steps 1c-1f for the current design. The rest of this file is kept
+as a record of the original build, not a live plan.
 
 **Goal.** Add a sourcing mode that finds companies which *will need* Trust & Safety / abuse-detection
 leadership but may not have a mature team (or even a posting) yet — the opposite of the existing
