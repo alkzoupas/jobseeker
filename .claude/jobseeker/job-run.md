@@ -1,8 +1,3 @@
----
-description: The full daily job-search pipeline — track channels, refresh priorities, curate roles, reconcile finished tasks, supervise, and send you a digest. Queues (does not auto-execute) anything needing approval. This is the scheduler entrypoint. Add "deep" for the thorough weekly pass.
-argument-hint: "[deep]"
----
-
 Run my full daily job-search pipeline. Arguments: `$ARGUMENTS`
 
 **Depth.** Default (no arguments) is the **daily** pass — keep it fast, skip fresh markets, and do
@@ -10,12 +5,15 @@ the vendor-careers-site sweep only for tier-1 gaps. If `$ARGUMENTS` contains **`
 **weekly thorough** pass instead: refresh **every** market regardless of `stale`, run the vendor
 careers-site sweep across **all** tiers, run role-scout's bounded new-company `WebSearch` discovery
 pass once (AGENT-RULES §7 / role-scout.md step 1h — finds companies not yet in `data/boards.md` at
-all, self-registers any real hit), and re-validate **every** stored proposal URL
-(`node scripts/check-urls.mjs --all`, including dismissed/applied). Everything else below is
-identical — same guardrails, same approval queuing. This is designed to run unattended (from the
-local scheduler) and leave a curated, prioritized queue waiting for me — **without applying to
-anything or sending any message on its own.** Anything that needs my go-ahead is QUEUED as an approval,
-not executed.
+all, self-registers any real hit), re-validate **every** stored proposal URL
+(`node scripts/check-urls.mjs --all`, including dismissed/applied), and spawn each
+**prioritization-agent** with the Agent tool's `model` set to `opus` — the deep pass rebuilds a
+market's vendor list from scratch rather than refreshing it, which is the one time that research is
+worth the top tier (AGENT-RULES §16). Everything else below is identical — same guardrails, same
+approval queuing. This is designed to run unattended (from the local
+scheduler) and leave a curated, prioritized queue waiting for me — **without applying to anything
+or sending any message on its own.** Anything that needs my go-ahead is QUEUED as an approval, not
+executed.
 
 ## 0. Log that the run started — do this FIRST, before anything else
 
@@ -75,6 +73,10 @@ Its `markets` array gives each market's `last_reviewed`, `age_days`, and a `stal
 
 - if `stale` → **prioritization-agent** for that market, then **role-scout** for that market;
 - if not stale → skip straight to **role-scout** for that market.
+
+Do not pass a `model` when spawning these — each agent declares its own tier in its frontmatter
+(AGENT-RULES §16). The single exception is the `deep` pass raising `prioritization-agent` to `opus`,
+described under *Depth* above.
 
 Launch the chains concurrently **but never more than 3 agents at a time** — with 4+ markets that
 means waves: start 3 chains, and as each one reports back start the next queued market. Reconcile
@@ -283,7 +285,7 @@ tool**, so an "emailed digest" would sit unsent in Drafts. Verified, not assumed
 ## Hard rules for unattended runs
 
 - **Do NOT apply** to anything (no application-agent here) and **do NOT send** follow-ups. Applying
-  is `/apply` and sending is `/followup`, both with my approval, done when I'm present.
+  is `/jobseeker apply` and sending is `/jobseeker followup`, both with my approval, done when I'm present.
 - **Stay inside the 3-agent cap.** Scheduled runs are guarded by `scripts/rss-guard.sh` (and its
   Windows twin `scripts/win/rss-guard.ps1`), which
   kills any process over 4 GB and aborts the run past 12 GB — but the cap is what keeps you from
@@ -295,4 +297,4 @@ tool**, so an "emailed digest" would sit unsent in Drafts. Verified, not assumed
   scout bailed, say which. A run that quietly covered half of what it claims is a failure.
 
 End by telling me the three things waiting for me: **proposals to review**, **follow-ups due**, and
-**approvals pending** — with the exact commands to act (`/apply <id>`, `/followup`).
+**approvals pending** — with the exact commands to act (`/jobseeker apply <id>`, `/jobseeker followup`).

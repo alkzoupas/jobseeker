@@ -1,4 +1,4 @@
-﻿# Read the newest uploaded CV into data/profile.md, by running /parse-cv headlessly.
+﻿# Read the newest uploaded CV into data/profile.md, by running /jobseeker parse-cv headlessly.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\win\parse-cv.ps1
 #
@@ -57,51 +57,32 @@ if (-not $Cv) {
 
 Write-Status "running" "reading $Cv"
 
-# What to tell the user, read off what claude actually said. Ordered by how specific the evidence
-# is: an authentication line is unambiguous, an unreadable PDF is what is left when nothing else
-# explains it. Twin of classify_failure() in scripts/parse-cv.sh -- change both together.
-function Get-FailureDetail {
-  param([string]$Out, [string]$Name)
-  if ($null -eq $Out) { $Out = "" }
-  if ($Out -match 'OAuth|authenticate|Authentication|not logged in|/login') {
-    return "Your Claude login has expired. Open a terminal, run claude, sign in, then try again."
-  }
-  if ($Out -match 'Unknown command') {
-    return "This copy of JobSeeker is missing its /parse-cv command, so the CV was never read. Reinstall or update JobSeeker."
-  }
-  if ($Out -match 'redit balance|insufficient|quota|ate limit') {
-    return "Claude refused the request - out of credit, or rate limited. Check your Claude account, then try again."
-  }
-  if ($Out -match 'budget|max-budget') {
-    return "The per-run spending cap stopped the read before it finished. Raise it in Settings > Spending."
-  }
-  if ($Out -match 'ENOTFOUND|ETIMEDOUT|ECONNREFUSED|network|Network') {
-    return "Claude could not be reached - this PC looks offline. Check the connection and try again."
-  }
-  return "Nothing could be read from $Name. If it is a scan rather than a text PDF, export it again from Word, Pages or Google Docs."
-}
-
 $script:LogFile = $Log
 $rc = 1
 try {
   Write-RunLog "==================== parse-cv '$Cv' $(Get-LocalStamp) ===================="
-  if (-not (Require-Claude)) { Write-Status "failed" "The Claude Code CLI is not on this machine's PATH."; exit 127 }
+  if (-not (Require-Claude)) {
+    Write-Status "failed" "The Claude Code CLI is not on this machine's PATH."
+    Write-Problem "cv-failed" "Reading $CvName could not start: the Claude Code CLI is not on this machine."
+    exit 127
+  }
 
   if (Test-MonthCeiling) {
     Write-Status "failed" "The monthly spending limit has been reached, so the CV was not read."
+    Write-Problem "cv-failed" "Reading $CvName did not start: the monthly spend ceiling has been reached. Raise it in Settings > Spending."
     exit 0
   }
 
   # Deliberately NOT under the run lock. Reading a CV touches no browser and no channel, it is the
   # one thing the wizard needs to overlap with everything else, and blocking it behind a 40-minute
-  # /job-run would strand someone on step 2 with no explanation.
+  # /jobseeker job-run would strand someone on step 2 with no explanation.
   # How much of the log was already there, so what this run adds can be read back afterwards. The
   # reason a run failed is in what claude said, and the message the wizard shows has to be built
   # from it -- with only the exit code to go on, every failure was reported to the user as "your
   # PDF is probably a scan".
   $before = 0
   if (Test-Path $Log) { $before = @(Get-Content $Log -ErrorAction SilentlyContinue).Count }
-  $rc = Invoke-ClaudeRun "/parse-cv" (Get-RunBudget "1") "parse CV"
+  $rc = Invoke-ClaudeRun "/jobseeker parse-cv" (Get-RunBudget "1") "parse CV"
   $runOut = ""
   if (Test-Path $Log) {
     $runOut = (@(Get-Content $Log -ErrorAction SilentlyContinue) | Select-Object -Skip $before) -join "`n"
@@ -127,7 +108,9 @@ try {
   } elseif ($Parsed -eq "1") {
     Write-Status "ok" "Read $CvName (the run reported exit $rc)"
   } else {
-    Write-Status "failed" (Get-FailureDetail $runOut $CvName)
+    $why = Get-FailureReason $runOut "Nothing could be read from $CvName. If it is a scan rather than a text PDF, export it again from Word, Pages or Google Docs."
+    Write-Status "failed" $why
+    Write-Problem "cv-failed" "Reading $CvName produced nothing. $why"
   }
 
   Write-RunLog "==================== done $(Get-LocalStamp) (exit $rc, parsed=$Parsed) ===================="

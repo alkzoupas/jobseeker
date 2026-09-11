@@ -71,14 +71,22 @@ try {
   [void](Invoke-Record @("approval-dispatch", $Id, "running", "sending from the dashboard"))
 
   $Budget = Get-RunBudget "1"
-  $rc = Invoke-ClaudeRun "/send-approval $Id" $Budget "send approval $Id"
+  $rc = Invoke-ClaudeRun "/jobseeker send-approval $Id" $Budget "send approval $Id"
 
   if ($rc -eq 0) {
     [void](Invoke-Record @("approval-dispatch", $Id, "sent", "sent from the dashboard"))
   } else {
     # `failed` is deliberately re-dispatchable: the send did not happen, so refusing to try again
     # would strand the message with no way forward but hand-editing a file.
-    [void](Invoke-Record @("approval-dispatch", $Id, "failed", "exit $rc — see data/.approvals.log"))
+    if ($script:RunClaudeDenied) {
+      $why = "JobSeeker was not allowed to use the tools it needs (" + $script:RunClaudeDenied + "), so nothing was sent. Update JobSeeker — older copies could not grant them."
+    } else {
+      $why = "exit $rc — see data/.approvals.log"
+    }
+    [void](Invoke-Record @("approval-dispatch", $Id, "failed", $why))
+    # An approval that silently fails to send is the worst failure in the product: the user believes
+    # the message went out. Say so in the activity log too.
+    Write-Problem "send-failed" "Approval $Id was not sent. $why"
   }
 
   Write-RunLog "==================== done $(Get-LocalStamp) (exit $rc) ===================="

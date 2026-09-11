@@ -10,6 +10,7 @@ import { promises as fs, default as fsSync } from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createHash } from "crypto";
 import * as platform from "./platform.mjs";
 import {
   parseFrontmatter,
@@ -55,6 +56,39 @@ const CONFIG = path.join(ROOT, "config", "job-seeker.config.md");
 const CV_DIR = path.join(ROOT, "templates", "cv");
 const PUBLIC = path.join(ROOT, "public");
 
+// Which build of the dashboard THIS process is serving: a fingerprint of the server code and
+// package.json, taken once, at start-up. It has to be taken here and not on request -- an update
+// replaces these files on disk while an old process may still be running, and a fingerprint read
+// later would describe the new files while the process serves the old code. The version number is
+// not enough on its own: main moves between releases without it changing.
+//
+// Every page carries the fingerprint it was rendered with, and the page's poll compares it with
+// this one (see /run-state and the poll in JS). A window left open across an update -- the
+// installer or the Update button restarts the server, the old window stays open -- notices the
+// mismatch and reloads, rather than showing the previous version until someone thinks to.
+const BUILD_ID = await (async () => {
+  const h = createHash("sha1");
+  try {
+    const dir = path.join(ROOT, "server");
+    for (const f of (await fs.readdir(dir)).filter((n) => n.endsWith(".mjs")).sort()) {
+      h.update(f);
+      h.update(await fs.readFile(path.join(dir, f)));
+    }
+    h.update(await fs.readFile(path.join(ROOT, "package.json")));
+  } catch {
+    // Unreadable is not fatal: a per-process value means every restart reads as a new build, which
+    // costs one extra reload and never a stale page.
+    h.update(`${process.pid}:${Date.now()}`);
+  }
+  return h.digest("hex").slice(0, 12);
+})();
+
+// Every HTML page goes out uncacheable. The page is rendered from data/ on every request, so a
+// stored copy is always a wrong one -- and after an update it is the previous version's page,
+// served by the browser without asking. no-store also keeps pages out of the back/forward cache,
+// which would otherwise restore a pre-update page, script and all.
+const HTML_HEADERS = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" };
+
 // The Chrome-extension bridge (server/bridge.mjs) is how Windows reaches the browser: there is no
 // Apple Events / launchd broker to lean on, so a small extension talks to this server over
 // /bridge/*. The module is loaded dynamically and guarded, so a checkout without it (or a bridge
@@ -95,6 +129,9 @@ const ASSETS = new Map([
   ["/apple-touch-icon.png", ["apple-touch-icon.png", "image/png"]],
   ["/logo.webp", ["logo.webp", "image/webp"]],
   ["/logo.png", ["logo.png", "image/png"]],
+  // The boot veil's mark. The Mac app's bundle carries the very same file, so both sides of the
+  // handover draw identical pixels (see BOOT_VEIL).
+  ["/boot-mark.png", ["boot-mark.png", "image/png"]],
 ]);
 
 // Cache buster derived from the icon files themselves. These are served with max-age=86400, which
@@ -126,6 +163,60 @@ const BRAND = (title) => `<div class="brand">
   </picture>
   <h1>${title}</h1>
 </div>`;
+
+// ---------- The boot veil ----------
+// Twin of the veil in installer/ui.html: keep the two identical, pixel for pixel.
+//
+// JobSeeker.app used to start a set-up install on its setup page ("Starting JobSeeker / One
+// moment."), then resize the window to dashboard size, then swap the page for the dashboard -- three
+// visible jumps on every launch. Now it opens at dashboard size on a veil (a large blurred mark and one
+// progress card) while it checks the Mac and starts this server, then loads this page with ?boot=1.
+// Drawing the SAME veil here, in the HTML itself so it is the first thing this page paints, is what
+// makes the handover invisible: WebKit keeps showing the old page until the new one paints, and what
+// the new one paints is identical. Then it fades, and the dashboard is simply there.
+//
+// Explicit box-sizing and font because the two pages differ on both: this one sets border-box
+// globally and ui.html does not, and a 2px difference in the spinner is exactly the kind of thing
+// that moves when the page changes underneath.
+const BOOT_VEIL = `<style>
+.bootveil,.bootveil *{box-sizing:border-box}
+.bootveil{position:fixed;inset:0;z-index:1000;background:var(--bg);color:var(--fg);display:flex;
+  align-items:center;justify-content:center;transition:opacity .35s ease;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+.bootveil[hidden]{display:none}
+.bootveil.gone{opacity:0;pointer-events:none}
+.bv-mark{position:absolute;left:50%;top:50%;width:640px;height:640px;transform:translate(-50%,-50%);
+  filter:blur(30px) saturate(1.15);opacity:.55;pointer-events:none}
+.bv-box{position:relative;width:420px;background:var(--bg);border:1px solid var(--line);border-radius:14px;
+  padding:22px 24px;box-shadow:0 18px 50px rgba(0,0,0,.25)}
+.bv-box h2{margin:0 0 14px;font-size:19px;font-weight:600;letter-spacing:-.01em;line-height:1.3}
+.bv-bar{height:5px;border-radius:99px;background:var(--line);overflow:hidden;margin:2px 0 10px}
+.bv-bar i{display:block;height:100%;background:var(--acc);border-radius:99px;transition:width .25s ease}
+.bv-say{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mut);min-height:1.4em}
+.bv-spin{flex:none;width:14px;height:14px;border-radius:50%;
+  border:2px solid color-mix(in srgb,var(--acc) 35%,transparent);border-top-color:var(--acc);
+  animation:bvsp .7s linear infinite}
+@keyframes bvsp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.bv-spin{animation:none}.bv-bar i,.bootveil{transition:none}}
+</style>
+<div class="bootveil" id="bootveil">
+  <img class="bv-mark" src="/boot-mark.png" alt="">
+  <div class="bv-box" role="status" aria-live="polite">
+    <h2>Starting JobSeeker</h2>
+    <div class="bv-bar"><i style="width:100%"></i></div>
+    <div class="bv-say"><span class="bv-spin"></span><span>Opening your dashboard</span></div>
+  </div>
+</div>
+<script>(function(){
+  // Drop ?boot=1 from the address, so a reload or a bookmark never replays the veil.
+  try{var u=new URL(location.href);u.searchParams.delete('boot');history.replaceState(null,'',u.pathname+u.search+u.hash);}catch(e){}
+  var v=document.getElementById('bootveil');
+  // Two frames after load: the first lets the dashboard underneath paint, the second starts the fade
+  // from a painted frame rather than from nothing.
+  function go(){requestAnimationFrame(function(){requestAnimationFrame(function(){
+    v.classList.add('gone');setTimeout(function(){v.remove();},450);});});}
+  if(document.readyState==='complete')go();else addEventListener('load',go);
+})();</script>`;
 
 // Runs in <head>, before the body paints. Setting data-theme here rather than after load is the
 // difference between a themed page and a page that flashes the wrong scheme on every navigation --
@@ -280,7 +371,9 @@ const TOUR_JS = `${VIEWPORT_JS}(function(){
     spot = document.createElement('div'); spot.className = 'tour-spot';
     bub = document.createElement('div'); bub.className = 'tour-bub below';
     document.body.appendChild(veil); document.body.appendChild(spot); document.body.appendChild(bub);
-    requestAnimationFrame(function(){ veil.classList.add('on'); });
+    /* Guarded: stop() nulls veil, and a click, Escape, or a vanished target can stop the tour
+       before this frame runs. */
+    requestAnimationFrame(function(){ if (veil) veil.classList.add('on'); });
     window.addEventListener('resize', place);
     /* The Run now button rides in a sticky, horizontally scrollable tab strip, so the ring drifts
        off its target on any scroll unless it is re-measured. Capture phase, because the strip's own
@@ -577,7 +670,7 @@ async function loadAll() {
   } catch {
     /* probe has not run yet */
   }
-  // /job-run writes the digest here BEFORE trying to deliver it, with a `delivered:` /
+  // /jobseeker job-run writes the digest here BEFORE trying to deliver it, with a `delivered:` /
   // `not-delivered: <reason>` first line. If the push failed the digest still exists — surfacing it
   // here is what stops a failed send becoming a silently missing update (it happened three days
   // running before anyone noticed).
@@ -916,12 +1009,7 @@ function tasksSection(rows, appTok, appIds, dueRows = null) {
   const staleRows = rows.filter(
     (r) => r.status === "open" && r.due_date && r.due_date < addDays(t0, -STALE_TASK_DAYS)
   );
-  return `<form method="POST" action="/add-task-nl" class="nladd">
-    <input name="nl" placeholder="Add a task in plain English — e.g. 'call Dana Friday about the referral'" autocomplete="off" required>
-    <button type="submit">+ Add</button>
-  </form>
-  <p class="muted nlhint">Typed in plain English — I parse the date, who, and type into columns. The full text is kept in the detail.</p>
-  <div class="taskfilters">
+  return `<div class="taskfilters">
     ${hasDue ? chip("due", `Due (${dueRows.length})`, true) : ""}
     ${chip("open", `Open (${open})`, !hasDue)}
     ${staleRows.length ? chip("stale", `Stale (${staleRows.length})`) : ""}
@@ -1155,7 +1243,7 @@ function normCompanyKey(name) {
 }
 
 function proposalsHTML(props, appliedByCompany, reposts = {}, busy = null) {
-  if (!props.length) return `<p class="empty">No proposals yet. Run <code>/curate</code>.</p>`;
+  if (!props.length) return `<p class="empty">No proposals yet. Run <code>/jobseeker curate</code>.</p>`;
   const rows = props
     .map((p) => p.data)
     .sort((x, y) => Number(y.priority || 0) - Number(x.priority || 0))
@@ -1688,6 +1776,12 @@ const ACTIVITY_FAMILY = {
   done:    { hue: 70,  types: ["task-done", "task-open", "task-add", "task-add-nl", "task-in-progress"] },
   config:  { hue: 322, types: ["criteria-edit", "cv-upload", "cv-parse", "correction"] },
   notice:  { hue: 45,  types: ["notification"] },
+  // Things that did not work. Its own family, its own red, its own filter chip — because the
+  // question this log gets opened to answer is usually "I pressed the button and nothing
+  // happened", and until now the answer to that was a status file that had already been
+  // overwritten, or a .log under data/ that nobody knows to open. The scripts write these
+  // (scripts/lib/claude-tools.sh, log_problem) with the cause in plain words, not an exit code.
+  problem: { hue: 0,   types: ["run-failed", "run-partial", "markets-failed", "cv-failed", "send-failed", "run-skipped"] },
 };
 const ACTIVITY_HUE = (() => {
   const m = {};
@@ -1700,8 +1794,10 @@ function activityHue(type) {
   for (let i = 0; i < String(type).length; i++) h = (h * 31 + String(type).charCodeAt(i)) % 360;
   return h;
 }
-// A run boundary is the one row worth spotting from across the page.
+// A run boundary is the one row worth spotting from across the page. So is a failure — and for the
+// same reason: you are scanning for where something changed, not reading top to bottom.
 const isRunStart = (t) => t === "run-start";
+const isProblem = (t) => ACTIVITY_FAMILY.problem.types.includes(t);
 
 function activityHTML(table) {
   if (!table.rows.length) return `<p class="empty">Nothing logged yet.</p>`;
@@ -1709,7 +1805,8 @@ function activityHTML(table) {
     .map((r) => {
       const type = String(r.type || "").trim();
       const fam = Object.entries(ACTIVITY_FAMILY).find(([, f]) => f.types.includes(type));
-      return `<tr data-type="${esc(type)}" data-fam="${esc(fam ? fam[0] : "other")}"${isRunStart(type) ? ' class="runrow"' : ""}>
+      const rowClass = isRunStart(type) ? " class=\"runrow\"" : isProblem(type) ? " class=\"probrow\"" : "";
+      return `<tr data-type="${esc(type)}" data-fam="${esc(fam ? fam[0] : "other")}"${rowClass}>
         <td class="nw">${esc(r.timestamp || "")}</td>
         <td><span class="atype${isRunStart(type) ? " arun" : ""}" style="--h:${activityHue(type)}">${esc(type)}</span></td>
         <td>${cell(r.detail)}</td>
@@ -1726,7 +1823,7 @@ function activitySection(table) {
     key === "all"
       ? table.rows.length
       : table.rows.filter((r) => ACTIVITY_FAMILY[key]?.types.includes(String(r.type || "").trim())).length;
-  const label = { run: "Runs", track: "Tracking", find: "Finding", apply: "Applying", close: "Dismissals", done: "Tasks", config: "Config", notice: "Notifications" };
+  const label = { run: "Runs", track: "Tracking", find: "Finding", apply: "Applying", close: "Dismissals", done: "Tasks", config: "Config", notice: "Notifications", problem: "Problems" };
   return `<div class="taskfilters afilters">
       <button type="button" class="tf active" data-f="all">All (${table.rows.length})</button>
       ${fams.map(([k]) => `<button type="button" class="tf" data-f="${k}" style="--h:${ACTIVITY_FAMILY[k].hue}">${label[k]} (${count(k)})</button>`).join("")}
@@ -1780,7 +1877,7 @@ const isOn = (v, dflt = true) => {
  * `suggestions` renders a native <datalist>, which is a dropdown you can also type past — the exact
  * "pick one or add your own" behaviour wanted, with no library and no custom popup to get wrong.
  */
-function chipsFieldHTML(name, label, value, { suggestions = [], placeholder = "", hint = "", sep: sepOpt = "" } = {}) {
+function chipsFieldHTML(name, label, value, { suggestions = [], placeholder = "", hint = "", sep: sepOpt = "", split: splitOpt = "" } = {}) {
   // Which character separates entries is a property of the DATA, not a global choice. `locations`
   // is stored as "Dubai, UAE; Remote" — semicolons separate, and the comma is part of a single
   // place name. Splitting that on commas would turn one location into two ("Dubai" and "UAE") and
@@ -1793,8 +1890,15 @@ function chipsFieldHTML(name, label, value, { suggestions = [], placeholder = ""
   // and read back as two places. So a caller that knows the field's shape can say so, and
   // `locations` does.
   const sep = sepOpt || (String(value || "").includes(";") ? ";" : ",");
+  // Writing and READING can differ. `markets` writes commas but must accept semicolons too: a value
+  // saved during the window when this field inferred its own separator is semicolon-joined, and a
+  // comma-only field would render the whole line as one chip -- disagreeing with marketList(), just
+  // in the other direction. Accepting both shows the four markets that were actually picked, and
+  // the next Save rewrites them with commas, so the file heals itself by being looked at.
+  const split = splitOpt || sep;
+  const splitRe = new RegExp(`[${split}]`);   // only , and ; are used; both are literal in a class
   const values = String(value || "")
-    .split(sep)
+    .split(splitRe)
     .map((s) => s.trim())
     .filter(Boolean);
   const listId = `dl_${name}`;
@@ -1810,7 +1914,7 @@ function chipsFieldHTML(name, label, value, { suggestions = [], placeholder = ""
     .filter((s) => !chosen.has(String(s).toLowerCase().replace(/[^a-z0-9]+/g, "")))
     .map((s) => `<option value="${esc(s)}"></option>`)
     .join("");
-  return `<div class="chipfield" data-name="${esc(name)}" data-sep="${sep}">
+  return `<div class="chipfield" data-name="${esc(name)}" data-sep="${sep}" data-split="${esc(split)}">
     <label class="chiplabel">${label}</label>
     <div class="chipbox">
       ${chips}
@@ -1834,7 +1938,18 @@ function criteriaFormHTML(criteria, marketNames = [], extraHidden = "") {
       // Picking rather than typing is what stops a second "fintech" appearing beside "Fintech".
       suggestions: marketNames,
       placeholder: "pick or type a market…",
-      hint: "— from your market lists; typing a new one creates it on the next /markets run",
+      hint: "— from your market lists; typing a new one creates it on the next /jobseeker markets run",
+      // Commas, said out loud rather than inferred. Without this, one pasted value containing a
+      // semicolon flipped the whole field to semicolon-separated and SAVED it that way, while
+      // marketList() below went on splitting only on commas -- so the box showed four markets and
+      // every agent read one, named "Economic Development; Exporting; Trade; Government". A market
+      // name has no comma in it, which is exactly why this field can say so and `locations` cannot.
+      //
+      // Semicolons are still ACCEPTED, for the lists already stored that way and for the paste that
+      // caused this in the first place: someone copying "Economic Development; Exporting; Trade"
+      // out of an industry list is doing the obvious thing, and it should become three markets.
+      sep: ",",
+      split: ",;",
     })}
     ${chipsFieldHTML("roles", "Target roles", raw("roles"), {
       suggestions: ["Product Management", "Solution Architect", "Solutions Engineer", "VP Product", "System Engineer", "Presales Engineer", "Technical Account Manager"],
@@ -1900,12 +2015,12 @@ function profileHTML(profile) {
   const status = parsed
     ? `<span class="pill s-offer">CV parsed ${esc(parsed)}</span>`
     : `<span class="pill s-rejected">No CV parsed</span>`;
-  // The upload form that used to live here left you to run /parse-cv yourself, and a PDF uploaded
+  // The upload form that used to live here left you to run /jobseeker parse-cv yourself, and a PDF uploaded
   // but never read is indistinguishable from no CV at all. One page now does both.
   return `<p>${status} ${profile.data?.source_cv ? esc(profile.data.source_cv) : ""}</p>
     <p><a class="btn-small linkbtn" href="/setup-step?step=cv&back=cv">${parsed ? "Replace my CV" : "Add my CV"}</a></p>
     <p class="muted">Uploading it also reads it — Claude turns the PDF into <code>data/profile.md</code>,
-      which is what roles are scored against. <code>/parse-cv</code> in Claude Code does the same thing.</p>`;
+      which is what roles are scored against. <code>/jobseeker parse-cv</code> in Claude Code does the same thing.</p>`;
 }
 
 function addTaskFormHTML() {
@@ -2203,6 +2318,42 @@ function runNowMenu({ tab, busy, lastNow }) {
   </span>`;
 }
 
+// "+ Add task" rides in the tab bar beside Run now. Adding a follow-up is the one thing you do from
+// every tab, and as a permanent row at the top of Today it cost two lines of the screen whether or
+// not you were adding anything — while still being easy to miss, because a field that is always
+// there reads as furniture. Folded into a button, it is one line of chrome and an explicit act.
+//
+// The panel is the same `.pop` shell as the Run now menu, so Escape, click-outside, viewport
+// clamping and focus-return all come from popToggle rather than from a second implementation here.
+//
+// It shows what it parsed BEFORE you commit: the same text can be read three ways ("Friday" is a
+// date, "call" is a type, "Dana" is a who), and a task that quietly landed with the wrong due date
+// is worse than no task, because it disappears from Today and resurfaces as overdue.
+function addTaskMenu() {
+  return `<span class="popwrap addtask-wrap">
+    <button type="button" class="runmenu-btn addtask-btn" aria-haspopup="dialog" aria-expanded="false"
+      aria-label="Add a task" onclick="popToggle('addtask', this)"
+      title="Add a follow-up, typed in plain English">
+      <span class="atplus" aria-hidden="true">+</span><span class="atlabel">Add task</span></button>
+    <div id="addtask" class="pop pop-addtask hide" role="dialog" aria-label="Add a task">
+      <p class="pop-h">Add a follow-up</p>
+      <p class="pop-sub">Type it as you would say it. Below is what will land in the columns.</p>
+      <form method="POST" action="/add-task-nl" id="addtaskform">
+        <input name="nl" id="addtasknl" data-popfocus autocomplete="off" required
+               placeholder="e.g. call Dana Friday about the referral">
+        <div id="addtaskparsed" class="parsed hide" aria-live="polite"></div>
+        <p class="parsenote">Nothing matched a column? It still saves — the whole sentence is kept
+          as the detail.</p>
+        <div class="pop-acts">
+          <span class="esc"><kbd>&#8629;</kbd> to add · <kbd>Esc</kbd> to cancel</span>
+          <button type="button" class="btn-secondary" onclick="popClose('addtask')">Cancel</button>
+          <button type="submit">OK</button>
+        </div>
+      </form>
+    </div>
+  </span>`;
+}
+
 // ---------- Today ----------
 // The default tab: what is actually waiting on you, assembled from the same data the other tabs
 // show. Every block states WHERE it came from, because an aggregate view whose selection rules
@@ -2265,7 +2416,7 @@ function unfinishedHTML(w, markets) {
   return `<div class="tblock">
       <p class="th">Unfinished setup <span class="muted">— each one runs on its own; nothing else has to be redone</span></p>
       ${rows.join("")}
-      <p class="tiny muted" style="margin-top:10px">Prefer the terminal? <code>/onboard</code> in Claude
+      <p class="tiny muted" style="margin-top:10px">Prefer the terminal? <code>/jobseeker onboard</code> in Claude
         Code asks the same questions and writes the same files. Or
         <a href="/welcome">run the whole wizard again</a>.</p>
     </div>`;
@@ -2603,7 +2754,7 @@ function setupHTML(st, criteria, marketNames = [], subReq = "", upd = null) {
         ${chanRow("Gmail / Calendar", st.channels.gmail, "Connected in Claude Code, not here.")}
         ${chanRow("WhatsApp", st.channels.whatsapp, "Read through Chrome by the daily run.")}
         ${chanRow("LinkedIn", st.channels.linkedin, "Read through Chrome by the daily run.")}
-        <tr><td class="nw"><b>CV</b></td><td class="nw">${st.profileParsed ? `<span class="ok-pill">parsed</span>` : `<span class="bad-pill">not parsed</span>`}</td><td class="nw"></td><td class="muted">Upload on the CV tab, then run <code>/parse-cv</code> in Claude Code.</td></tr>
+        <tr><td class="nw"><b>CV</b></td><td class="nw">${st.profileParsed ? `<span class="ok-pill">parsed</span>` : `<span class="bad-pill">not parsed</span>`}</td><td class="nw"></td><td class="muted">Upload on the CV tab, then run <code>/jobseeker parse-cv</code> in Claude Code.</td></tr>
       </tbody></table></div>
 
       ${manual.length ? `<p class="th">Only you can do these</p>` + manual.map(([k, v]) => `<div class="alert warn"><b>${esc(k)}</b>${v}</div>`).join("") : ""}`)}
@@ -2938,8 +3089,8 @@ function todayHTML(all, dueToday, appTok, appIds) {
     const preview = String(a.body || "").trim();
     const hidden = `<input type="hidden" name="_tab" value="today"><input type="hidden" name="id" value="${esc(d.id)}">`;
     // An application approval cannot be "sent" — it is a form half-filled in a browser session that
-    // /apply is holding open. Saying "Approve & send" on one would be a lie, so it says what it
-    // does: it records your yes, and /apply does the submitting.
+    // /jobseeker apply is holding open. Saying "Approve & send" on one would be a lie, so it says what it
+    // does: it records your yes, and /jobseeker apply does the submitting.
     const approveLabel = isApply ? "Approve" : "Approve &amp; send";
     return `<div class="titem">
       <span class="ti-co">${esc(kind)}</span>
@@ -2947,7 +3098,7 @@ function todayHTML(all, dueToday, appTok, appIds) {
         <div class="ti-sub">${esc(d.channels || "")}${d.channels ? " · " : ""}<code>${esc(d.id)}</code></div>
         ${days != null ? `<div class="ti-age${stale ? " stale" : ""}">waiting ${days === 0 ? "since today" : `${days} day${days === 1 ? "" : "s"}`}${stale ? " — it will read as late" : ""}</div>` : ""}
         ${preview ? `<details class="apprev"><summary>Show the full text</summary><pre class="digest">${esc(preview)}</pre></details>` : `<div class="ti-sub muted">No preview was recorded.</div>`}
-        ${isApply ? `<div class="ti-sub muted">Approving records your decision. The submit itself happens in the <code>/apply</code> session that opened this.</div>` : ""}
+        ${isApply ? `<div class="ti-sub muted">Approving records your decision. The submit itself happens in the <code>/jobseeker apply</code> session that opened this.</div>` : ""}
       </span>
       <span class="ti-acts">
         <form method="POST" action="/decide-approval" class="inline">${hidden}
@@ -3300,6 +3451,7 @@ function page(all, flash, forceUpdate = false) {
 ${HEAD_ICONS}
 <style>${CSS}</style>
 </head><body>
+${all.boot ? BOOT_VEIL : ""}
 <header>
   ${BRAND("Job Seeker")}
   <div class="head-actions">
@@ -3324,7 +3476,7 @@ ${flash ? `<div class="flash ${esc(flash.kind)}">${esc(flash.msg)}</div>` : ""}
     all.runNow ? runBadge(all.runNow) : ""
   }
 </div>
-${tabStrip(TABS, active, runNowMenu({ tab: active, busy: all.runNow, lastNow: all.lastRunNow }))}
+${tabStrip(TABS, active, addTaskMenu() + runNowMenu({ tab: active, busy: all.runNow, lastNow: all.lastRunNow }))}
 </div>
 <div id="panels">
 ${tabPanel("today", on("today"), sec("today", "", todayHTML(all, dueToday, appTok, appIds)))}
@@ -3427,9 +3579,9 @@ ${tabStrip(TABS, active)}
 <div id="panels">
 ${tabPanel("setup", on("setup"), sec("setup", `Setup`, unfinishedHTML(all.welcome, all.markets) + setupHTML(all.status, all.criteria, (all.markets ?? []).map((m) => m.label), all.sub, all.update)))}
 ${tabPanel("companies", on("companies"), sec("companies", `Companies <span class="muted">— who you are targeting and where their jobs are read from (🔎 to find a board, ✏️ to paste one)</span>`, companiesHTML(all)))}
-${tabPanel("cv", on("cv"), sec("cv", `CV <span class="muted">— parsed into data/profile.md by /parse-cv</span>`, profileHTML(all.profile)))}
+${tabPanel("cv", on("cv"), sec("cv", `CV <span class="muted">— parsed into data/profile.md by /jobseeker parse-cv</span>`, profileHTML(all.profile)))}
 </div>
-<footer class="muted">Local Markdown is the source of truth (<code>data/</code>). <a href="/">Back to work →</a>${
+<footer class="muted">${
   platform.IS_WIN
     ? ` <form method="POST" action="/quit" class="inline" style="display:inline"><button type="submit" class="quitbtn">Quit JobSeeker</button></form>`
     : ""
@@ -3813,7 +3965,9 @@ details.adv[open] > summary{margin-bottom:10px;color:var(--fg)}
 .runmenu-btn:hover{border-color:var(--acc);color:var(--acc)}
 .runmenu-btn[aria-expanded=true]{border-color:var(--acc);color:var(--acc)}
 .runmenu-btn .caret{font-size:10px;opacity:.7}
-.pop-run{width:min(360px,calc(100vw - 32px))}
+/* Doubled selector, like .pop.pop-wide below: plain .pop-run has the same specificity as
+   .pop{width:320px} and loses to it on source order, and to the narrow-screen .pop override. */
+.pop.pop-run{width:min(360px,calc(100vw - 32px))}
 .runmenu-busy{display:flex;flex-direction:column;gap:5px;margin:0 0 10px;padding:9px 10px;
   border-radius:8px;background:rgba(214,138,0,.10)}
 .runmenu-busy .muted{font-size:11px;line-height:1.45}
@@ -3827,6 +3981,12 @@ details.adv[open] > summary{margin-bottom:10px;color:var(--fg)}
 .rmi-label{font-size:13px;font-weight:650}
 .rmi-sub{font-size:11px;color:var(--mut);line-height:1.4}
 .runmenu-last{margin:10px 0 0;padding-top:9px;border-top:1px solid var(--line);font-size:11px;color:var(--mut)}
+/* Add task — the one button in the bar that CREATES something, so it is filled rather than
+   outlined and reads as the primary act next to Run now's outline. */
+.addtask-btn{background:var(--acc);border-color:var(--acc);color:var(--bg);font-weight:700;gap:5px}
+.addtask-btn:hover{filter:brightness(1.08);border-color:var(--acc);color:var(--bg)}
+.addtask-btn[aria-expanded=true]{filter:brightness(1.08);border-color:var(--acc);color:var(--bg)}
+.addtask-btn .atplus{font-size:15px;line-height:1;font-weight:700;margin-top:-1px}
 /* One running job, said identically in the stat bar, on Today, and beside every per-tab trigger. */
 .runbadge{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:99px;
   font-size:12px;font-weight:600;background:rgba(214,138,0,.16);color:#d68a00;white-space:nowrap}
@@ -3907,6 +4067,27 @@ table td.wrap:first-child{white-space:normal}
 .pop-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .pop-acts button{font-size:12.5px;padding:6px 16px}
 @media (max-width:720px){.pop{width:min(320px,calc(100vw - 48px))}}
+.pop-addtask{width:min(560px,calc(100vw - 32px))}
+/* Opt in to the measured arrow: at 560px wide this panel is centred and then pushed off the
+   viewport edge, so the inherited right:18px arrow would point at empty tab strip. */
+.pop-addtask::before{right:auto;left:var(--arrowx,50%)}
+.pop-addtask form{margin:0}
+.pop-addtask input[name=nl]{width:100%;font-size:13.5px;padding:10px 12px}
+.pop-addtask input[name=nl]:focus{outline:2px solid var(--acc);outline-offset:-1px;border-color:transparent}
+/* What the parser made of it, said before you commit rather than after. Hidden while the field is
+   empty: three chips reading "no date · followup · not named" over an empty box is noise. */
+.parsed{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:11px 0 0}
+.pchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:4px 10px;border-radius:999px;
+  background:rgba(110,168,254,.12);border:1px solid rgba(110,168,254,.35);color:var(--acc)}
+/* A column the text did not fill is stated, not hidden — "not named" is information; a missing chip
+   would just look like the preview had not caught up. */
+.pchip.pnone{background:transparent;border-color:var(--line);color:var(--mut)}
+.pchip .pk{color:var(--mut);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase}
+.parsenote{margin:9px 0 0;font-size:11.5px;color:var(--mut);line-height:1.45}
+.pop-addtask .pop-acts{margin-top:13px;padding-top:12px;border-top:1px solid var(--line)}
+.pop-addtask .esc{margin-right:auto;font-size:11.5px;color:var(--mut);display:inline-flex;align-items:center;gap:5px}
+.pop-addtask kbd{font:500 11px/1 ui-monospace,Menlo,monospace;color:var(--mut);border:1px solid var(--line);
+  border-radius:5px;padding:3px 5px;background:var(--bg)}
 .alert{padding:11px 14px;border-radius:9px;margin:0 0 18px;font-size:13px;line-height:1.5}
 .alert.warn{background:rgba(214,138,0,.10);box-shadow:inset 3px 0 0 #d68a00}
 /* Chrome-extension pairing (Windows): the folder to load and the code to type, both meant to be read
@@ -3951,6 +4132,47 @@ tr.bform td{background:rgba(110,168,254,.06);border-bottom:2px solid var(--line)
 .st-needs-url{background:#6b2330}.st-manual{background:#3a2f67}
 .st-pending{background:#2b3a67}.st-unknown{background:#3a3f57;color:var(--mut)}
 .tier{font-size:10px;background:#2b3a67}.tier-1{background:#1f6b2f}.tier-2{background:#2b3a67}.tier-3{background:#3a3f57}
+/* Light mode. Every pill above is a dark fill with no text colour of its own, which is correct
+   against dark-mode ink and unreadable against light-mode ink — near-black text on a near-black
+   pill. The status pills solved this with per-state --s-*-bg/fg pairs; these never got the same
+   treatment, so they get it here: a tinted fill and a dark ink, in the same families as the fills
+   they replace, so a green pill stays green. */
+:root[data-theme="light"] .st-readable,
+:root[data-theme="light"] .b-json{background:#d3f0e2;color:#10503a}
+:root[data-theme="light"] .st-queued,
+:root[data-theme="light"] .b-browser{background:#f7e6c4;color:#6b4708}
+:root[data-theme="light"] .st-needs-url,
+:root[data-theme="light"] .b-blocked{background:#fbdadf;color:#7a1b2a}
+:root[data-theme="light"] .st-manual,
+:root[data-theme="light"] .b-manual{background:#e6dffa;color:#402a78}
+:root[data-theme="light"] .st-pending,
+:root[data-theme="light"] .b-html{background:#dbe6fb;color:#1d3a72}
+:root[data-theme="light"] .st-unknown{background:#e2e5f0;color:#4a5068}
+:root[data-theme="light"] .b-none{background:#fadfe3;color:#6e2430}
+:root[data-theme="light"] .b-volatile{background:#f5e6d2;color:#5c4020}
+:root[data-theme="light"] .tier{background:#dbe6fb;color:#1d3a72}
+:root[data-theme="light"] .tier-1{background:#d6f0d6;color:#14561f}
+:root[data-theme="light"] .tier-2{background:#dbe6fb;color:#1d3a72}
+:root[data-theme="light"] .tier-3{background:#e2e5f0;color:#4a5068}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]) .st-readable,
+  :root:not([data-theme="dark"]) .b-json{background:#d3f0e2;color:#10503a}
+  :root:not([data-theme="dark"]) .st-queued,
+  :root:not([data-theme="dark"]) .b-browser{background:#f7e6c4;color:#6b4708}
+  :root:not([data-theme="dark"]) .st-needs-url,
+  :root:not([data-theme="dark"]) .b-blocked{background:#fbdadf;color:#7a1b2a}
+  :root:not([data-theme="dark"]) .st-manual,
+  :root:not([data-theme="dark"]) .b-manual{background:#e6dffa;color:#402a78}
+  :root:not([data-theme="dark"]) .st-pending,
+  :root:not([data-theme="dark"]) .b-html{background:#dbe6fb;color:#1d3a72}
+  :root:not([data-theme="dark"]) .st-unknown{background:#e2e5f0;color:#4a5068}
+  :root:not([data-theme="dark"]) .b-none{background:#fadfe3;color:#6e2430}
+  :root:not([data-theme="dark"]) .b-volatile{background:#f5e6d2;color:#5c4020}
+  :root:not([data-theme="dark"]) .tier{background:#dbe6fb;color:#1d3a72}
+  :root:not([data-theme="dark"]) .tier-1{background:#d6f0d6;color:#14561f}
+  :root:not([data-theme="dark"]) .tier-2{background:#dbe6fb;color:#1d3a72}
+  :root:not([data-theme="dark"]) .tier-3{background:#e2e5f0;color:#4a5068}
+}
 /* Fixed layout, explicit widths. With auto layout the endpoint column grew to fit 200-character
    agent notes, pushing the actions column off the right edge and letting the rationale text spill
    over the neighbouring cell. Percentages keep it responsive without a horizontal scrollbar. */
@@ -4040,9 +4262,35 @@ details summary{cursor:pointer;padding:6px 0;font-weight:600}
 /* Generic hide. NOTE: .flash.hide (below) deliberately overrides this to fade instead of vanish. */
 .hide{display:none!important}
 .flash.hide{display:block!important}
-.flash{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:1000;padding:11px 18px;border-radius:8px;border:1px solid var(--line);box-shadow:0 6px 24px rgba(0,0,0,.35);opacity:1;transition:opacity .5s ease,transform .5s ease}
+.flash{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:1000;padding:11px 18px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);box-shadow:0 6px 24px var(--flash-shadow);opacity:1;transition:opacity .5s ease,transform .5s ease}
 .flash.hide{opacity:0;transform:translateX(-50%) translateY(-8px)}
-.flash.ok{background:#153b2a;border-color:#1f6b2f}.flash.err{background:#3b1520;border-color:#6b2330}
+/* The toast's colours are tokens, said once per theme like the status pills. They used to be dark
+   hex only, and the text inherited --fg — which on the light theme is near-black, so "Criteria
+   saved." was black on dark green. "bad" (a refused input) and "warn" had no colour of their own at
+   all and rendered as bare text floating over the page. Every kind the server sends is styled here. */
+:root{
+  --flash-shadow:rgba(0,0,0,.35);
+  --flash-ok-bg:#153b2a; --flash-ok-bd:#1f6b2f; --flash-ok-fg:#cdf0cf;
+  --flash-err-bg:#3b1520; --flash-err-bd:#6b2330; --flash-err-fg:#ffc9d2;
+  --flash-warn-bg:#3a2a0e; --flash-warn-bd:#6b4708; --flash-warn-fg:#f5cf85;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --flash-shadow:rgba(31,28,23,.16);
+    --flash-ok-bg:#e3f3e2; --flash-ok-bd:#a8d5ab; --flash-ok-fg:#14561f;
+    --flash-err-bg:#fbe4e8; --flash-err-bd:#eab0ba; --flash-err-fg:#7a1b2a;
+    --flash-warn-bg:#f8ecd2; --flash-warn-bd:#e2c47f; --flash-warn-fg:#6b4708;
+  }
+}
+:root[data-theme="light"]{
+    --flash-shadow:rgba(31,28,23,.16);
+    --flash-ok-bg:#e3f3e2; --flash-ok-bd:#a8d5ab; --flash-ok-fg:#14561f;
+    --flash-err-bg:#fbe4e8; --flash-err-bd:#eab0ba; --flash-err-fg:#7a1b2a;
+    --flash-warn-bg:#f8ecd2; --flash-warn-bd:#e2c47f; --flash-warn-fg:#6b4708;
+}
+.flash.ok{background:var(--flash-ok-bg);border-color:var(--flash-ok-bd);color:var(--flash-ok-fg)}
+.flash.err,.flash.bad{background:var(--flash-err-bg);border-color:var(--flash-err-bd);color:var(--flash-err-fg)}
+.flash.warn{background:var(--flash-warn-bg);border-color:var(--flash-warn-bd);color:var(--flash-warn-fg)}
 .head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .head-actions form{margin:0}
 /* Narrow windows: tighten the chrome so more tabs stay visible before the strip has to scroll. */
@@ -4053,6 +4301,9 @@ details summary{cursor:pointer;padding:6px 0;font-weight:600}
   nav.tabs .tab{padding:8px 10px;font-size:13px}
   .statbar{gap:12px;font-size:12px}
   .statbar .sb-sp{display:none}
+  /* Two buttons plus five tabs do not fit: Add task keeps its + and loses its word. */
+  .addtask-btn .atlabel{display:none}
+  .addtask-btn{padding-inline:11px}
   .ti-co{min-width:0}
   .titem{flex-wrap:wrap}
 }
@@ -4062,7 +4313,6 @@ footer{padding:18px 24px}
 #pinned{padding:12px 24px 0}
 #sections{padding:0 24px 0}
 .sec{border:1px solid var(--line);border-radius:12px;background:var(--card);margin-bottom:12px;padding:0;overflow:hidden}
-.nladd{display:flex;gap:8px;margin:2px 0 4px}.nladd input{flex:1}
 .nlhint{margin:0 0 10px;font-size:12px}
 .taskfilters{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
 .tf{background:var(--bg);color:var(--fg);border:1px solid var(--line);padding:5px 12px;border-radius:999px;font-size:12px;cursor:pointer}
@@ -4076,6 +4326,8 @@ footer{padding:18px 24px}
 .atype.arun{background:oklch(var(--ton-bg-l) var(--ton-bg-c) var(--h));color:oklch(var(--ton-fg-l) var(--ton-fg-c) var(--h));
   box-shadow:inset 0 0 0 1px oklch(var(--tring-l) var(--tring-c) var(--h))}
 tr.runrow td{border-top:2px solid oklch(var(--tring-l) calc(var(--tring-c) * .7) 213);background:rgba(110,168,254,.06)}
+tr.probrow td{background:rgba(220,80,80,.07)}
+tr.probrow td:first-child{box-shadow:inset 3px 0 0 oklch(var(--tring-l) calc(var(--tring-c) * .9) 22)}
 .prowact{margin:0}.prowact button{background:transparent;color:var(--mut);border:0;padding:0 4px;font-size:16px;line-height:1;cursor:pointer;border-radius:6px}
 .prowact button.xbtn{color:#d06;font-weight:700}.prowact button:hover{background:var(--line);filter:none}
 tr.pdismissed{opacity:.45}tr.pdismissed td:nth-child(3){text-decoration:line-through}
@@ -4574,6 +4826,11 @@ const JS = `${VIEWPORT_JS}
      watching for a run someone ELSE started: the 08:00 schedule, another tab, the terminal. */
   (function(){
     var seen = null, timer = 0;
+    /* The build that rendered THIS page, fixed into it by the server. Compared on every poll with the
+       build the server is running now. It is baked in rather than taken from the first poll, because
+       a server swapped before that first poll would otherwise become the baseline, and the page
+       rendered by the old one would never learn it is stale. */
+    var BUILD = ${JSON.stringify(BUILD_ID)};
     function busyNow(){ return !!document.querySelector('[data-busy]'); }
     /* Never yank the page out from under a hand. A reload mid-sentence loses what was typed, and a
        reload under an open dialog loses the decision being made -- so it waits for a quiet moment,
@@ -4593,6 +4850,19 @@ const JS = `${VIEWPORT_JS}
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(d){
           if (!d) return;
+          /* A different build is answering: this page is left over from before an update. Reload for
+             the new one -- at a quiet moment, like any other reload here. The session note stops a
+             loop if something between here and the server keeps handing back the old page. */
+          if (d.build && d.build !== BUILD) {
+            var tried = '';
+            try { tried = sessionStorage.getItem('js_build_reload') || ''; } catch(e){}
+            if (tried !== d.build && !occupied()) {
+              try { sessionStorage.setItem('js_build_reload', d.build); } catch(e){}
+              keepPlace();
+              location.reload();
+            }
+            return;
+          }
           /* A version this page has never heard of is a change worth reloading for, the same as a
              run finishing: the reload is what puts the dialog in front of the user. */
           var now = (d.running ? d.running.slug + '@' + d.running.started : '') + '|' + (d.finished || '') +
@@ -4614,6 +4884,13 @@ const JS = `${VIEWPORT_JS}
     /* A hidden tab costs the user nothing to leave open, and should cost the server nothing either. */
     document.addEventListener('visibilitychange', function(){
       if (!document.hidden) { clearTimeout(timer); timer = setTimeout(tick, 400); }
+    });
+    /* An app window that never goes hidden -- the Edge window on Windows, the Mac app -- is exactly
+       the one left open across an update. Coming back to it is the moment to ask, not up to 30
+       seconds later. pageshow covers a page restored from the back/forward cache. */
+    window.addEventListener('focus', function(){ clearTimeout(timer); timer = setTimeout(tick, 400); });
+    window.addEventListener('pageshow', function(e){
+      if (e.persisted) { clearTimeout(timer); timer = setTimeout(tick, 100); }
     });
     schedule();
   })();
@@ -4725,8 +5002,17 @@ function popToggle(id, btn){
       if(top+h > vh-pad) top=Math.max(pad, b.top-h-10); // flip above if no room below
       el.style.left=Math.round(left)+'px';
       el.style.top=Math.round(top)+'px';
+      /* Where the arrow has to sit to actually point at the button. A panel is centred on its
+         button and then clamped to the viewport edge, so a fixed arrow offset points at the button
+         only in the middle of the screen — the wider the panel, the further out it lies. Panels
+         that opt in read this; the rest keep their fixed corner arrow. */
+      el.style.setProperty('--arrowx', Math.round(Math.min(Math.max(16, b.left + b.width/2 - left - 6), w-28))+'px');
     }
-    var t=el.querySelector('textarea'); if(t){ t.focus(); }
+    /* [data-popfocus] first: a panel whose primary control is an <input> (Add task) has to focus
+       that input, and it is the panel, not this function, that knows which control that is. */
+    var t=el.querySelector('[data-popfocus]') || el.querySelector('textarea');
+    if(t){ t.focus(); if(t.select) t.select(); }
+    if(el.id==='addtask') addTaskPreview();
   } else if(popOpener){ popOpener.focus(); popOpener=null; }
 }
 document.addEventListener('click', function(e){
@@ -4740,6 +5026,66 @@ document.addEventListener('keydown', function(e){
     var open=document.querySelector('.pop:not(.hide)');
     if(open) popClose(open.id);
   }
+});
+
+/* ---------- Add task: show what it parsed, before it is written ----------
+   The chips have to say exactly what the server will store, so the page runs the SERVER's parser.
+   parseNL is injected verbatim below rather than reimplemented for the browser: two copies of a
+   heuristic drift, and a preview that disagrees with the row it creates is worse than no preview.
+   It is pure and dependency-free, which is what makes shipping the same function to both sides
+   possible at all. */
+${parseNL.toString()}
+/* ISO is what goes in the column; a weekday is what tells you the parse was right. "2026-09-11" and
+   "Fri 11 Sep" are the same fact, and only one of them catches "Friday" landing on a Thursday. */
+function addTaskDue(iso){
+  /* split(), not a regex: this string is inside a server-side template literal, where a lone \\d
+     would be eaten as an escape and ship a regex that matches the letter d. */
+  var m=String(iso||'').split('-');
+  if(m.length!==3 || m[0].length!==4) return iso||'';
+  var d=new Date(+m[0], +m[1]-1, +m[2]);
+  var DAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return DAY[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()];
+}
+function addTaskPreview(){
+  var inp=document.getElementById('addtasknl'), out=document.getElementById('addtaskparsed');
+  if(!inp||!out) return;
+  var raw=inp.value.trim();
+  /* Empty field: no chips. "no date · followup · not named" over an empty box is three lines of
+     noise saying nothing has been typed yet, which the empty box already says. */
+  if(!raw){ out.textContent=''; out.classList.add('hide'); out.dataset.sig=''; return; }
+  var p=parseNL(raw);
+  /* Most keystrokes change nothing here — a whole word can go by without moving a column. Redrawing
+     only on a real change keeps this a live region a screen reader can bear: it speaks when the
+     parse moves, not on every letter. */
+  var sig=p.due_date+'|'+p.type+'|'+p.who;
+  if(out.dataset.sig===sig && !out.classList.contains('hide')) return;
+  out.dataset.sig=sig;
+  out.textContent='';
+  out.classList.remove('hide');
+  [['due', p.due_date ? addTaskDue(p.due_date) : 'no date', !p.due_date],
+   ['type', p.type, false],
+   ['who', p.who || 'not named', !p.who]].forEach(function(c){
+    var el=document.createElement('span');
+    el.className='pchip'+(c[2]?' pnone':'');
+    var k=document.createElement('span'); k.className='pk'; k.textContent=c[0];
+    el.appendChild(k);
+    /* textContent, never innerHTML: this is whatever was typed into the box. */
+    el.appendChild(document.createTextNode(c[1]));
+    out.appendChild(el);
+  });
+}
+document.addEventListener('input', function(e){
+  if(e.target && e.target.id==='addtasknl') addTaskPreview();
+});
+/* The panel promises "Enter to add", so it says so out loud rather than leaning on the browser's
+   implicit submission — which a single stray keydown handler anywhere above it would silence. */
+document.addEventListener('keydown', function(e){
+  if(e.key!=='Enter' || !e.target || e.target.id!=='addtasknl') return;
+  var f=document.getElementById('addtaskform');
+  if(!f || !f.reportValidity()) return;
+  e.preventDefault();
+  f.requestSubmit ? f.requestSubmit() : f.submit();
 });
 
 function bToggle(id){
@@ -4968,7 +5314,7 @@ document.getElementById('cvform')?.addEventListener('submit', async (e) => {
   if (!f) return;
   msg.textContent = 'Uploading…';
   const res = await fetch('/upload-cv?name=' + encodeURIComponent(f.name), { method:'POST', headers:{'content-type':'application/pdf'}, body: f });
-  msg.textContent = res.ok ? 'Saved. Now run /parse-cv in Claude Code.' : 'Upload failed.';
+  msg.textContent = res.ok ? 'Saved. Now run /jobseeker parse-cv in Claude Code.' : 'Upload failed.';
 });
 
 window.openDetail = function(id){
@@ -5200,6 +5546,12 @@ Array.prototype.slice.call(document.querySelectorAll('.dbtn')).forEach(function(
     // Per-field, decided server-side from the stored value — see chipsFieldHTML. Locations use
     // semicolons because a single entry ("Dubai, UAE") contains a comma.
     var SEP = field.getAttribute('data-sep') || ',';
+    // What may separate a pasted list, which is not always what we write back — see chipsFieldHTML.
+    var SPLIT = field.getAttribute('data-split') || SEP;
+    // Only , and ; are ever used, and both are literal inside a character class, so this needs no
+    // escaping — which matters, because this script lives inside a template literal and a $ here
+    // would be interpolated by the page that carries it.
+    var SPLIT_RE = new RegExp('[' + SPLIT + ']');
 
     function values(){
       return Array.prototype.slice.call(box.querySelectorAll('.chip')).map(function(c){
@@ -5211,7 +5563,7 @@ Array.prototype.slice.call(document.querySelectorAll('.dbtn')).forEach(function(
     function add(raw){
       // A pasted "a, b, c" becomes three chips rather than one nonsense value — pasting a list into
       // a list field is the obvious thing to try.
-      var parts = String(raw).split(SEP).map(function(s){ return s.trim(); }).filter(Boolean);
+      var parts = String(raw).split(SPLIT_RE).map(function(s){ return s.trim(); }).filter(Boolean);
       var existing = values().map(key);
       parts.forEach(function(p){
         if (existing.indexOf(key(p)) !== -1) return;   // already there, in some spelling
@@ -5232,7 +5584,7 @@ Array.prototype.slice.call(document.querySelectorAll('.dbtn')).forEach(function(
     }
 
     input.addEventListener('keydown', function(e){
-      if (e.key === 'Enter' || e.key === SEP) { e.preventDefault(); if (input.value.trim()) add(input.value); }
+      if (e.key === 'Enter' || SPLIT.indexOf(e.key) !== -1) { e.preventDefault(); if (input.value.trim()) add(input.value); }
       // Backspace on an empty box removes the last chip — standard for this control, and quicker
       // than aiming for a small ×.
       else if (e.key === 'Backspace' && !input.value) {
@@ -5592,7 +5944,7 @@ async function handleAddCompany(form) {
       company,
       tier: "3",
       last_reviewed: today(),
-      notes: `Added manually from the dashboard ${today()}. Tier 3 is provisional — not yet researched or ranked; run /markets to score it properly. Careers board lookup was triggered on add.`,
+      notes: `Added manually from the dashboard ${today()}. Tier 3 is provisional — not yet researched or ranked; run /jobseeker markets to score it properly. Careers board lookup was triggered on add.`,
     },
     "bottom"
   );
@@ -5857,9 +6209,9 @@ async function handleSaveConfig(form) {
 //
 // Everything JobSeeker does used to be behind a terminal: clone, `npm run setup`, `claude`, then a
 // slash command. This is the same setup with a face on it — seven steps, three of them skippable,
-// each writing the SAME files /onboard writes. It is a face, not a new source of truth: criteria,
+// each writing the SAME files /jobseeker onboard writes. It is a face, not a new source of truth: criteria,
 // the answer library and the config remain the only record of what you chose, so the wizard and
-// /onboard can be used interchangeably and neither can drift from the other.
+// /jobseeker onboard can be used interchangeably and neither can drift from the other.
 //
 // Deliberately server-rendered, one form POST per step. A client-side wizard would hold your
 // answers in memory until a final Save, which means closing the window at step 5 loses steps 1-4.
@@ -6109,7 +6461,7 @@ async function mergeConfig(fields) {
 
 // What is actually set up, read from the files themselves rather than from a progress counter.
 // A wizard that remembered "you did step 3" would disagree with the files the moment anything was
-// edited elsewhere — and /onboard, the dashboard and a text editor can all edit them.
+// edited elsewhere — and /jobseeker onboard, the dashboard and a text editor can all edit them.
 async function welcomeState({ schedule = false } = {}) {
   const { existing: cfgRaw, data: cfg } = await readConfigRaw();
   const criteria = parseFrontmatter(await safeRead(path.join(DATA, "criteria.md"))).data || {};
@@ -6187,18 +6539,18 @@ function welcomeProgress(key) {
     </div>`;
 }
 
-// "I would rather use the terminal" used to be a paragraph saying to run /onboard, which left the
+// "I would rather use the terminal" used to be a paragraph saying to run /jobseeker onboard, which left the
 // reader to work out what came after it. These are the commands, in the order they are meant to be
 // run, each one copyable — because a command you retype from a screenshot is a command you mistype.
 //
 // A modal rather than the .pop popover: this is a list to work through with a terminal open beside
 // it, not a one-line aside, and a popover closes the moment you click away to the terminal.
 const TERMINAL_STEPS = [
-  ["/onboard", "The same questions this wizard asks, in chat. Writes the same files."],
-  ["/parse-cv", "Reads templates/cv/*.pdf into data/profile.md, so roles are scored against you."],
-  ["/markets", "Researches and ranks the companies in each industry you named."],
-  ["/curate", "Finds live openings at those companies and scores them."],
-  ["/job-run", "The whole daily pipeline, whenever you want it. Queues approvals; sends nothing."],
+  ["/jobseeker onboard", "The same questions this wizard asks, in chat. Writes the same files."],
+  ["/jobseeker parse-cv", "Reads templates/cv/*.pdf into data/profile.md, so roles are scored against you."],
+  ["/jobseeker markets", "Researches and ranks the companies in each industry you named."],
+  ["/jobseeker curate", "Finds live openings at those companies and scores them."],
+  ["/jobseeker job-run", "The whole daily pipeline, whenever you want it. Queues approvals; sends nothing."],
 ];
 
 const COPY_GLYPH = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
@@ -6281,7 +6633,7 @@ function welcomeCVCard(st) {
   const running = st.cvStatus?.state === "running";
   const parsed = st.profileParsed;
   // A failure stands only while it is still the LATEST thing that happened to the CV. Nothing but
-  // scripts/parse-cv.sh writes this status file, so `/parse-cv` run from chat — or any other path
+  // scripts/parse-cv.sh writes this status file, so `/jobseeker parse-cv` run from chat — or any other path
   // that fills data/profile.md — leaves the old "failed" behind untouched. Checking the status
   // first meant a perfectly good profile was reported as unreadable for as long as the stale file
   // survived, and the reader's reasonable conclusion was that the CV step is broken.
@@ -7346,9 +7698,14 @@ async function handleRunAction(form) {
   return out.text.split("\n").filter(Boolean).pop() || `${name} done`;
 }
 
+// Commas separate markets, and the settings field now says so. Semicolons are accepted too, because
+// for a while it did not: a value containing one flipped the field to semicolon-separated and saved
+// it, and every list stored in that window reads as a single market with a punctuated name until
+// someone opens Settings and presses Save. Splitting on both is what makes those lists work now
+// rather than at the next edit -- and costs nothing, since no market is named with either mark.
 const marketList = (s) =>
   String(s || "")
-    .split(",")
+    .split(/[,;]/)
     .map((x) => x.trim())
     .filter(Boolean);
 
@@ -7432,14 +7789,21 @@ async function criteriaImpact(nextMarkets) {
  *      rejected, because re-adding a vertical is not a statement about that specific job.
  *
  * Vendor discovery itself is not started here: finding companies for a market is a research pass
- * that costs real money and minutes (`/markets` → prioritization-agent), and silently spending that
+ * that costs real money and minutes (`/jobseeker markets` → prioritization-agent), and silently spending that
  * from a settings save would be a surprising thing for a form to do. The file and the restored
  * roles are the setup; the flash message names the command that fills it.
  */
-async function setUpAddedMarkets(added) {
+// `added` is what changed — it decides which auto-dismissed proposals come back. `scaffold` is what
+// should EXIST, which is every market currently targeted, not only the new ones. Those came apart
+// when the markets field and marketList() disagreed about separators: a list stored as
+// "A; B; C" was one market on disk and, once read correctly, three in criteria with two of them
+// having no file at all — and a market with no file is invisible to audit.mjs, so the daily run
+// would never research it. Scaffolding everything wanted is idempotent (an existing file is left
+// exactly as it is) and means one Save in Settings repairs the whole set.
+async function setUpAddedMarkets(added, scaffold = added) {
   const created = [];
   const restored = [];
-  for (const name of added) {
+  for (const name of scaffold) {
     const slug = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     if (!slug) continue;
     const file = path.join(DATA, "markets", `${slug}.md`);
@@ -7451,7 +7815,7 @@ async function setUpAddedMarkets(added) {
         file,
         `# Market: ${name}\n\n` +
           "Maintained by the prioritization-agent. `tier` 1 = strongest fit. Ranked best-first.\n\n" +
-          `Created from the dashboard on ${today()}. Run \`/markets\` in Claude Code to research and rank vendors.\n\n` +
+          `Created from the dashboard on ${today()}. Run \`/jobseeker markets\` in Claude Code to research and rank vendors.\n\n` +
           "| company | tier | hq | why | careers_url | linkedin_url | last_reviewed | notes |\n" +
           "|---------|------|----|-----|-------------|--------------|---------------|-------|\n"
       );
@@ -7475,6 +7839,64 @@ async function setUpAddedMarkets(added) {
     }
   }
   return { created, restored };
+}
+
+// ---- markets saved with the wrong separator (repaired on start, from 0.7.6) ---------------------
+// Before 0.7.6 the Markets box inferred its separator from the value, so a pasted semicolon list was
+// SAVED as one market: one empty file under data/markets/, headed with all four names. A tester's
+// dashboard duly asked "Shall I research Economic Development; Exporting; Trade; Government now?".
+// Reading criteria correctly fixes the list going forward; this removes the file the bug left behind
+// and creates the separate ones a Save in Settings would — so the person it happened to never needs
+// to know it happened, or to delete anything by hand.
+//
+// It deletes, so it only deletes what cannot be anyone's work:
+//   * the heading contains a semicolon — the bug's signature; no market is named with one,
+//   * it splits into two or more names,
+//   * and its table has NO rows. A researched list is kept whatever it is called.
+// Only the names still in criteria.md get a file: someone who has since changed their markets does
+// not get old ones back. Idempotent — once nothing matches it does nothing — so it simply runs on
+// every start rather than keeping a record of having run.
+async function migrateSemicolonMarkets() {
+  const dir = path.join(DATA, "markets");
+  let files = [];
+  try {
+    files = await fs.readdir(dir);
+  } catch {
+    return { removed: [], created: [] };
+  }
+  const wanted = marketList((parseFrontmatter(await safeRead(path.join(DATA, "criteria.md"))).data || {}).markets);
+  const wantedKeys = new Set(wanted.map(marketKey));
+  const removed = [];
+  const toCreate = [];
+  for (const f of files) {
+    if (!f.endsWith(".md") || f.startsWith(".")) continue;
+    const p = path.join(dir, f);
+    let text = "";
+    try {
+      text = await fs.readFile(p, "utf8");
+    } catch {
+      continue;
+    }
+    const m = /^#\s*Market:\s*(.+)$/m.exec(text);
+    if (!m || !m[1].includes(";")) continue;
+    const parts = m[1].split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
+    if ((await readTable(p)).rows.length) continue;
+    for (const name of parts) if (wantedKeys.has(marketKey(name))) toCreate.push(name);
+    await fs.unlink(p);
+    removed.push(m[1].trim());
+  }
+  // No `added`: nothing was added by the user here, so no auto-dismissed proposal comes back.
+  const setup = toCreate.length ? await setUpAddedMarkets([], toCreate) : { created: [] };
+  if (removed.length) {
+    await logActivity(
+      "correction",
+      `Split ${removed.map((r) => `'${r}'`).join(", ")} into separate markets` +
+        (setup.created.length ? `: ${setup.created.join(", ")}` : "") +
+        " — it had been saved as one market with semicolons in its name"
+    );
+  }
+  return { removed, created: setup.created };
 }
 
 async function handleSaveCriteria(form) {
@@ -7510,9 +7932,10 @@ async function handleSaveCriteria(form) {
     );
   }
 
-  const setup = added.length ? await setUpAddedMarkets(added) : { created: [], restored: [] };
+  const wanted = marketList(form.markets ?? "");
+  const setup = wanted.length ? await setUpAddedMarkets(added, wanted) : { created: [], restored: [] };
   if (setup.created.length) {
-    await logActivity("market-add", `Market file created for ${setup.created.join(", ")} — run /markets to research vendors`);
+    await logActivity("market-add", `Market file created for ${setup.created.join(", ")} — run /jobseeker markets to research vendors`);
   }
   if (setup.restored.length) {
     await logActivity("proposal-proposed", `${setup.restored.length} role(s) restored — market(s) re-added: ${added.join(", ")}`);
@@ -7522,7 +7945,7 @@ async function handleSaveCriteria(form) {
   // happened, which is why a second "Add market" button existed in the first place.
   const parts = [];
   // Plain text: the flash is rendered through esc(), so markup here would show as literal "<code>".
-  if (setup.created.length) parts.push(`${setup.created.join(", ")} added — run /markets in Claude Code to research vendors`);
+  if (setup.created.length) parts.push(`${setup.created.join(", ")} added — run /jobseeker markets in Claude Code to research vendors`);
   if (setup.restored.length) parts.push(`${setup.restored.length} previously dismissed role${setup.restored.length === 1 ? "" : "s"} restored`);
   if (impact.ids.length) parts.push(`${impact.ids.length} role${impact.ids.length === 1 ? "" : "s"} from ${impact.removed.join(", ")} dismissed`);
   return { ...impact, setup, flash: parts.length ? { kind: "ok", msg: `Criteria saved. ${parts.join(" · ")}.` } : null };
@@ -7560,7 +7983,10 @@ function parseNL(text) {
   else if (/\btoday\b/.test(lc)) due = addDays(0);
   else if (/\bnext week\b/.test(lc)) due = addDays(7);
   else if ((m = lc.match(/\bin (\d+)\s*(day|days|week|weeks)\b/))) due = addDays(parseInt(m[1], 10) * (/week/.test(m[2]) ? 7 : 1));
-  else if ((m = lc.match(/\b(mon|tue|wed|thu|fri|sat|sun)(?:day|nesday|rsday|urday)?\b/))) {
+    // "sday" is what makes TUESDAY parse: every other weekday's tail is covered above, so
+  // "call Dana Tuesday" quietly landed with no due date at all — the one day of the week you
+  // could not write. The Add task panel shows the parsed date now, which is how it surfaced.
+  else if ((m = lc.match(/\b(mon|tue|wed|thu|fri|sat|sun)(?:day|nesday|rsday|urday|sday)?\b/))) {
     const map = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
     let diff = (map[m[1]] - base.getDay() + 7) % 7; if (diff === 0) diff = 7;
     due = addDays(diff);
@@ -7891,7 +8317,7 @@ async function handlePickCV(form) {
   } catch (e) {
     return done({ kind: "bad", msg: `The CV could not be saved (${e.code || e.message}). Nothing changed.` });
   }
-  await logActivity("cv-upload", `Chose CV: templates/cv/${name} (run /parse-cv)`);
+  await logActivity("cv-upload", `Chose CV: templates/cv/${name} (run /jobseeker parse-cv)`);
 
   await snapshotProfile();
   platform.spawnScriptDetached("parse-cv");
@@ -7976,7 +8402,7 @@ async function handleUpdateNow(form) {
 //
 // Same spawn, lock and budget path as handleRunNow — deliberately, because it drives the same
 // serial Chrome. The differences are that it takes an argument and that nothing it starts can
-// submit anything: /apply-fill leaves a filled form in a tab and adds a task to finish it.
+// submit anything: /jobseeker apply-fill leaves a filled form in a tab and adds a task to finish it.
 async function handleApplyNow(form) {
   const id = String(form.id || "").trim();
   // Shape first, then existence on disk. This value came from a browser and ends up on a command
@@ -8088,7 +8514,7 @@ async function handleDecideApproval(form) {
 
   if (data.status === "rejected") return { kind: "ok", msg: `Rejected. Nothing was sent.` };
   if (!sendable) {
-    return { kind: "ok", msg: `Approved. Applications are submitted by the /apply session that opened this — nothing was sent from here.` };
+    return { kind: "ok", msg: `Approved. Applications are submitted by the /jobseeker apply session that opened this — nothing was sent from here.` };
   }
   dispatchApproval(id);
   return {
@@ -8216,7 +8642,7 @@ async function handleUploadCV(req, url) {
   await fs.mkdir(CV_DIR, { recursive: true });
   const dest = path.join(CV_DIR, name);
   await fs.writeFile(dest, buf);
-  await logActivity("cv-upload", `Uploaded CV: templates/cv/${name} (run /parse-cv)`);
+  await logActivity("cv-upload", `Uploaded CV: templates/cv/${name} (run /jobseeker parse-cv)`);
   return dest;
 }
 
@@ -8299,7 +8725,7 @@ const server = http.createServer(async (req, res) => {
       const flash = url.searchParams.get("flash")
         ? { kind: url.searchParams.get("flash"), msg: url.searchParams.get("msg") || "" }
         : null;
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.writeHead(200, HTML_HEADERS);
       return res.end(welcomePage(st, key, flash));
     }
     // One step, on its own, for changing something long after setup.
@@ -8322,7 +8748,7 @@ const server = http.createServer(async (req, res) => {
       const flash = url.searchParams.get("flash")
         ? { kind: url.searchParams.get("flash"), msg: url.searchParams.get("msg") || "" }
         : null;
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.writeHead(200, HTML_HEADERS);
       return res.end(welcomeStandalonePage(st, want, back, flash));
     }
     // Is anything running, and what finished last? Deliberately tiny and uncached: the page polls
@@ -8350,6 +8776,7 @@ const server = http.createServer(async (req, res) => {
           running: live ? { slug: live.slug, started: live.started } : null,
           finished: last?.finished || "",
           update: upd?.available && !answered ? upd.latest : "",
+          build: BUILD_ID,
         })
       );
     }
@@ -8391,6 +8818,8 @@ const server = http.createServer(async (req, res) => {
       // The active tab is chosen server-side from ?tab= so there is no flash of the wrong pane, and
       // so a POST redirect can put you back where you were.
       all.tab = url.searchParams.get("tab") || "";
+      // Set only by JobSeeker.app, on the load that takes the window over from its own boot veil.
+      all.boot = url.searchParams.get("boot") === "1";
       // Settings' second axis: which sub-pane of Setup. Chosen server-side for the same reason as
       // the tab — no flash of the wrong pane, and a POST redirect can return you to it.
       all.sub = url.searchParams.get("sub") || "";
@@ -8408,7 +8837,7 @@ const server = http.createServer(async (req, res) => {
       const forceUpdate = url.searchParams.get("upd") === "1";
       const html =
         url.pathname === "/settings" ? settingsPage(all, flash, forceUpdate) : page(all, flash, forceUpdate);
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.writeHead(200, HTML_HEADERS);
       res.end(html);
       return;
     }
@@ -8476,7 +8905,7 @@ const server = http.createServer(async (req, res) => {
         return res.end("Cross-site request rejected");
       }
       // Every mutation below shares data/ with record.mjs, which agents may be running right
-      // now (a scheduled /job-run writing while you click Advance). Take the same lock so the
+      // now (a scheduled /jobseeker job-run writing while you click Advance). Take the same lock so the
       // two never interleave a read-modify-write. GET is unlocked — a slightly stale render is
       // harmless, and blocking page loads behind a long agent run would not be.
       //
@@ -8796,6 +9225,22 @@ server.on("error", async (e) => {
   console.error(`The dashboard could not start: ${e?.message || e}`);
   process.exit(1);
 });
+
+// The one-off repair above. Under the same lock every other writer takes, and before the port opens,
+// so the first page after an update is already clean. Bounded: record.mjs holds that lock for
+// milliseconds at a time, but a start must never hang behind it, so after a few seconds the port
+// opens anyway and the repair finishes when the lock comes free. And never fatal — it is tidying,
+// not a precondition for anything.
+try {
+  const repair = withLock(() => migrateSemicolonMarkets()).catch((e) => {
+    console.error(`Market repair skipped: ${e?.message || e}`);
+    return null;
+  });
+  const fixed = await Promise.race([repair, new Promise((r) => setTimeout(() => r(null), 4000))]);
+  if (fixed?.removed?.length) console.log(`Repaired ${fixed.removed.length} market list(s) saved as one`);
+} catch (e) {
+  console.error(`Market repair skipped: ${e?.message || e}`);
+}
 
 server.listen(PORT, HOST, () => {
   console.log(`Job-seeker dashboard on http://127.0.0.1:${PORT}`);

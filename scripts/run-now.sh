@@ -28,10 +28,10 @@ STATUS="$REPO/data/.run-now.status.json"
 # and the spend caps — because it drives Chrome like the others, and two agents in the same browser
 # read each other's tabs (AGENT-RULES §13).
 case "$SLUG" in
-  job-run)  PROMPT="/job-run"; LABEL="Full daily run";        DEFAULT_BUDGET=5 ;;
-  track)    PROMPT="/track";   LABEL="Read my channels";      DEFAULT_BUDGET=3 ;;
-  curate)   PROMPT="/curate";  LABEL="Find new roles";        DEFAULT_BUDGET=3 ;;
-  followup) PROMPT="/followup";LABEL="Draft due follow-ups";  DEFAULT_BUDGET=2 ;;
+  job-run)  PROMPT="/jobseeker job-run"; LABEL="Full daily run";        DEFAULT_BUDGET=5 ;;
+  track)    PROMPT="/jobseeker track";   LABEL="Read my channels";      DEFAULT_BUDGET=3 ;;
+  curate)   PROMPT="/jobseeker curate";  LABEL="Find new roles";        DEFAULT_BUDGET=3 ;;
+  followup) PROMPT="/jobseeker followup";LABEL="Draft due follow-ups";  DEFAULT_BUDGET=2 ;;
   apply)
     # The id reaches this from a web form, and it is about to be interpolated into a prompt. An
     # allow-list on the SHAPE, checked again here rather than trusted from the caller.
@@ -43,7 +43,7 @@ case "$SLUG" in
       echo "no such proposal: $TARGET" >&2
       exit 66
     fi
-    PROMPT="/apply-fill $TARGET"; LABEL="Fill an application"; DEFAULT_BUDGET=3 ;;
+    PROMPT="/jobseeker apply-fill $TARGET"; LABEL="Fill an application"; DEFAULT_BUDGET=3 ;;
   *)
     echo "usage: run-now.sh <job-run|track|curate|followup|apply <proposal-id>>" >&2
     exit 64 ;;
@@ -128,8 +128,13 @@ mkdir -p "$REPO/data"
       JR_DETAIL="$(jobrun_field detail)"
     fi
   else
-    run_claude "$PROMPT" "$BUDGET" "$LABEL (dashboard)"
+    # Captured as well as logged, so a failure can be explained in words rather than as an exit
+    # code. Redirected rather than piped into tee: run_claude sets RUN_CLAUDE_DENIED, and the
+    # left-hand side of a pipeline is a subshell whose variables die with it.
+    RUNLOG="$(mktemp)"
+    run_claude "$PROMPT" "$BUDGET" "$LABEL (dashboard)" > "$RUNLOG" 2>&1
     rc=$?
+    cat "$RUNLOG"
   fi
 
   "$NODE_BIN" "$REPO/server/record.mjs" log run-finish "$LABEL finished (exit $rc)" >/dev/null 2>&1
@@ -142,8 +147,13 @@ mkdir -p "$REPO/data"
   elif [ $rc -eq 0 ]; then
     write_status "ok" "$LABEL completed"
   else
-    write_status "failed" "$LABEL exited $rc"
+    # Say why, and say it where someone will see it. job-run writes its own row, so this covers the
+    # other buttons; a status file is overwritten by the next run, the activity log is not.
+    WHY="$(classify_failure "${RUNLOG:-}" "$LABEL exited $rc — the full output is in data/.run-now.log.")"
+    write_status "failed" "$WHY"
+    log_problem run-failed "$LABEL did not finish. $WHY"
   fi
+  [ -n "${RUNLOG:-}" ] && rm -f "$RUNLOG"
 
   echo "==================== done $(date '+%Y-%m-%d %H:%M:%S') (exit $rc) ===================="
   exit $rc

@@ -1,8 +1,3 @@
----
-description: Build or refresh ranked vendor/company lists for your target markets. Usage — "/markets" (refresh all), "/markets Fintech" (one market), "/markets add Fintech" (add then build).
-argument-hint: "[add] [market name]"
----
-
 Build/refresh my market vendor lists. Arguments: `$ARGUMENTS`
 
 Interpret the arguments:
@@ -13,6 +8,9 @@ Interpret the arguments:
 
 Steps:
 1. `cat data/criteria.md` to read the current `markets:` list (and to append for `add`).
+   Markets are **comma-separated**. Older files may use semicolons — treat those as separators too,
+   so `Economic Development; Exporting; Trade` is three markets, not one oddly-named one. Append
+   with a comma.
 2. Determine the list of markets to process.
 3. **Launch one `prioritization-agent` per market, in parallel — at most 3 at a time** (multiple
    Agent tool calls in a single message). Tell each agent exactly which market it owns. They write
@@ -22,5 +20,5 @@ Steps:
 4. When they return, give me a short combined summary: per market, how many companies were ranked
    and the top few, plus any coverage gaps they flagged.
 
-Then remind me I can run `/curate` to find live openings at these prioritized companies, and that
+Then remind me I can run `/jobseeker curate` to find live openings at these prioritized companies, and that
 the lists are visible on the dashboard (Markets & vendors).

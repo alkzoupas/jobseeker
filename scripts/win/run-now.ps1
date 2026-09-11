@@ -31,10 +31,10 @@ $Status = [IO.Path]::Combine($Repo, "data", ".run-now.status.json")
 # and the spend caps — because it drives Chrome like the others, and two agents in the same browser
 # read each other's tabs (AGENT-RULES §13).
 switch ($Slug) {
-  "job-run"  { $Prompt = "/job-run";  $Label = "Full daily run";       $DefaultBudget = "5" }
-  "track"    { $Prompt = "/track";    $Label = "Read my channels";     $DefaultBudget = "3" }
-  "curate"   { $Prompt = "/curate";   $Label = "Find new roles";       $DefaultBudget = "3" }
-  "followup" { $Prompt = "/followup"; $Label = "Draft due follow-ups"; $DefaultBudget = "2" }
+  "job-run"  { $Prompt = "/jobseeker job-run";  $Label = "Full daily run";       $DefaultBudget = "5" }
+  "track"    { $Prompt = "/jobseeker track";    $Label = "Read my channels";     $DefaultBudget = "3" }
+  "curate"   { $Prompt = "/jobseeker curate";   $Label = "Find new roles";       $DefaultBudget = "3" }
+  "followup" { $Prompt = "/jobseeker followup"; $Label = "Draft due follow-ups"; $DefaultBudget = "2" }
   "apply" {
     # The id reaches this from a web form, and it is about to be interpolated into a prompt. An
     # allow-list on the SHAPE, checked again here rather than trusted from the caller.
@@ -46,7 +46,7 @@ switch ($Slug) {
       [Console]::Error.WriteLine("no such proposal: $Target")
       exit 66
     }
-    $Prompt = "/apply-fill $Target"; $Label = "Fill an application"; $DefaultBudget = "3"
+    $Prompt = "/jobseeker apply-fill $Target"; $Label = "Fill an application"; $DefaultBudget = "3"
   }
   default {
     [Console]::Error.WriteLine("usage: run-now.ps1 <job-run|track|curate|followup|apply <proposal-id>>")
@@ -156,9 +156,18 @@ try {
       $jrDetail = Get-JobRunField "detail"
     }
   } else {
+    # How much of the log was already there, so a failure can be explained in words rather than as
+    # an exit code.
+    $before = 0
+    if (Test-Path $Log) { $before = @(Get-Content $Log -ErrorAction SilentlyContinue).Count }
     $rc = Invoke-ClaudeRun $Prompt $Budget "$Label (dashboard)"
+    $runOut = ""
+    if (Test-Path $Log) {
+      $runOut = (@(Get-Content $Log -ErrorAction SilentlyContinue) | Select-Object -Skip $before) -join "`n"
+    }
   }
 
+  if ($null -eq $runOut) { $runOut = "" }
   [void](Invoke-Record @("log", "run-finish", "$Label finished (exit $rc)"))
   if ($jrState) {
     if (-not $jrDetail) { $jrDetail = "finished" }
@@ -170,7 +179,11 @@ try {
   } elseif ($rc -eq 0) {
     Write-Status "ok" "$Label completed"
   } else {
-    Write-Status "failed" "$Label exited $rc"
+    # Say why, and say it where someone will see it. job-run writes its own row, so this covers the
+    # other buttons; a status file is overwritten by the next run, the activity log is not.
+    $why = Get-FailureReason $runOut "$Label exited $rc — the full output is in data/.run-now.log."
+    Write-Status "failed" $why
+    Write-Problem "run-failed" "$Label did not finish. $why"
   }
 
   Write-RunLog "==================== done $(Get-LocalStamp) (exit $rc) ===================="

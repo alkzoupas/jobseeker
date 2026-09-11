@@ -1,8 +1,3 @@
----
-description: Apply to a curated proposal via the browser, with your approval before submit. Usage — "/apply <proposal-id>" or "/apply <job-url>".
-argument-hint: "<proposal-id | job-url>"
----
-
 Apply to a job. Argument: `$ARGUMENTS`
 
 You orchestrate the human-in-the-loop application flow. **Nothing gets submitted without my explicit
@@ -13,7 +8,7 @@ approval in this session.**
    - If it's a URL, use it directly.
    - If empty, list the top few `data/proposals/*.md` by `priority` and ask me which to apply to.
    - Confirm `data/profile.md` is parsed (not the placeholder) and a CV PDF exists; if not, tell me
-     to run `/parse-cv` / upload a CV first.
+     to run `/jobseeker parse-cv` / upload a CV first.
    - **Prefer the tailored CV when available:** if a proposal id was given, check for
      `output/<company>_<role>/cv.pdf` (the output of `/tailor`). If it exists, use that instead of
      the generic `templates/cv/*.pdf`. Tell me which CV is being attached (tailored vs generic).

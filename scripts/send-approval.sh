@@ -60,7 +60,7 @@ mkdir -p "$REPO/data"
   "$NODE_BIN" "$REPO/server/record.mjs" approval-dispatch "$ID" running "sending from the dashboard" >/dev/null 2>&1
 
   BUDGET="$(run_budget 1)"
-  run_claude "/send-approval $ID" "$BUDGET" "send approval $ID"
+  run_claude "/jobseeker send-approval $ID" "$BUDGET" "send approval $ID"
   rc=$?
 
   if [ $rc -eq 0 ]; then
@@ -68,7 +68,15 @@ mkdir -p "$REPO/data"
   else
     # `failed` is deliberately re-dispatchable: the send did not happen, so refusing to try again
     # would strand the message with no way forward but hand-editing a file.
-    "$NODE_BIN" "$REPO/server/record.mjs" approval-dispatch "$ID" failed "exit $rc — see data/.approvals.log" >/dev/null 2>&1
+    if [ -n "${RUN_CLAUDE_DENIED:-}" ]; then
+      WHY="JobSeeker was not allowed to use the tools it needs ($RUN_CLAUDE_DENIED), so nothing was sent. Update JobSeeker — older copies could not grant them."
+    else
+      WHY="exit $rc — see data/.approvals.log"
+    fi
+    "$NODE_BIN" "$REPO/server/record.mjs" approval-dispatch "$ID" failed "$WHY" >/dev/null 2>&1
+    # An approval that silently fails to send is the worst failure in the product: the user believes
+    # the message went out. Say so in the activity log too.
+    log_problem send-failed "Approval $ID was not sent. $WHY"
   fi
 
   echo "==================== done $(date '+%Y-%m-%d %H:%M:%S') (exit $rc) ===================="

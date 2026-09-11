@@ -138,6 +138,55 @@ function push() {
 // ------------------------------------------------------------------ run loop
 var app = $.NSApplication.sharedApplication;
 var win, wv;
+
+// ---- link opener ---------------------------------------------------------------------------------
+// Every external link on the dashboard is <a target="_blank">. In a WKWebView, clicking one asks the
+// host's WKUIDelegate for a new window -- and this app used to set no delegate at all, so WebKit got
+// no answer and the click did nothing, silently: job postings, LinkedIn profiles, "See everything
+// that changed". The same page in a browser, and on Windows (Edge/Chrome in --app mode), always
+// worked, which is why it looked like a page bug and was not one.
+//
+// So the delegate answers the new-window request by handing the link to the default browser --
+// where the user is already signed in to LinkedIn and the job sites -- and returns NO window.
+//
+// The return value is the trap. It must be $(), JXA's nil. Returning null from a JXA method typed
+// 'id' segfaults the whole process on the first click (measured: exit 139, every time), so a
+// "harmless" null here would have turned a dead link into a crashed app.
+//
+// Only http and https leave the app. A file:, javascript: or custom-scheme link is dropped: this is
+// the one path by which page content can make the Mac open something, and none of those is a page.
+//
+// linkOpener is kept in a global because WKWebView holds its UI delegate WEAKLY: a local would be
+// collected and the webview would quietly go back to having no delegate.
+var openExternally = function (url) { $.NSWorkspace.sharedWorkspace.openURL(url); };
+try {
+  ObjC.registerSubclass({
+    name: 'JobSeekerLinkOpener',
+    protocols: ['WKUIDelegate'],
+    methods: {
+      'webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:': {
+        types: ['id', ['id', 'id', 'id', 'id']],
+        implementation: function (webView, configuration, navigationAction, windowFeatures) {
+          try {
+            var url = navigationAction.request.URL;
+            var scheme = String(ObjC.unwrap(url.scheme) || '').toLowerCase();
+            if (scheme === 'http' || scheme === 'https') {
+              openExternally(url);
+              // The host only: enough to see that a click was handled, without writing job URLs
+              // (and whatever tracking tokens ride on them) into a log that goes into bug reports.
+              appendFile(FULLLOG, stamp() + '  opened a link in the browser: ' + ObjC.unwrap(url.host) + '\n');
+            }
+          } catch (e) {
+            appendFile(FULLLOG, stamp() + '  link opener error: ' + e.message + '\n');
+          }
+          return $();
+        }
+      }
+    }
+  });
+} catch (e) { /* already registered in this process -- $.JobSeekerLinkOpener still exists */ }
+var linkOpener = $.JobSeekerLinkOpener.alloc.init;
+// ---- end link opener -----------------------------------------------------------------------------
 var mode = 'setup';
 
 // ------------------------------------------------------------------ native chrome follows the page
@@ -158,6 +207,15 @@ var themeSeen = null, themeApplied = null, themeTick = 0;
 // reads as setup running again, on an app you have used for weeks. Quiet mode keeps the same work
 // and drops the costume.
 var quietStart = false;
+// A set-up install starting: the window opens at dashboard size on the boot veil (installer/ui.html)
+// and hands over to the dashboard underneath an identical one (BOOT_VEIL in server/dashboard.mjs).
+// Decided once in run(), from the same files setupFinished() reads, before the window exists -- the
+// window's size is the first thing that would otherwise jump. Cleared by leaveBoot() the moment the
+// launch turns out to need real setup work after all.
+var bootMode = false;
+// Whether the window has been put on screen. A boot keeps it hidden until its page has painted the veil,
+// so everything that reads "not visible" as "the user closed it" must wait for this.
+var shown = false;
 
 function themeAnswer(result, error) {
   // A real function, never $() -- see THE RULE at the top of this file.
@@ -186,6 +244,9 @@ function syncAppearance() {
       app.appearance = $();
     }
     appendFile(FULLLOG, stamp() + '  appearance: ' + themeApplied + '\n');
+    // Only the DASHBOARD's setting is worth keeping: ui.html is a file:// page with storage of its
+    // own, and the next launch's veil must match the page it will hand over to, not this one.
+    if (mode === 'app') writeFile(WORK + '/appearance', themeApplied);
   } catch (e) {
     appendFile(FULLLOG, stamp() + '  appearance failed: ' + e.message + '\n');
   }
@@ -231,14 +292,33 @@ function cgBounds() {
   return null;
 }
 
+// Whether a window-server rectangle (CG space: origin at the PRIMARY display's top-left, y down) lies
+// wholly on one display. NSScreen frames are AppKit space (origin bottom-left of the primary, y up), so
+// each is flipped into CG space against the primary's height before comparing. A pixel of slack for
+// rounding.
+function onSomeScreen(b) {
+  var screens = $.NSScreen.screens;
+  if (!screens || screens.count === 0) return true;
+  var primaryH = screens.objectAtIndex(0).frame.size.height;
+  for (var i = 0; i < screens.count; i++) {
+    var f = screens.objectAtIndex(i).frame;
+    var x = f.origin.x, y = primaryH - (f.origin.y + f.size.height);
+    if (b.x >= x - 1 && b.y >= y - 1 && b.x + b.w <= x + f.size.width + 1 && b.y + b.h <= y + f.size.height + 1) return true;
+  }
+  return false;
+}
+
 // Checked after the window is up, against the window server rather than against AppKit -- because
 // AppKit was the thing reporting a position the window did not have.
 function ensureOnScreen(w) {
   try {
     var b = cgBounds();
     if (!b) return false;          // not registered yet; the caller will ask again
-    var sf = $.NSScreen.mainScreen.frame;          // CG space: main screen is 0,0 .. width,height
-    var off = (b.x < 0 || b.y < 0 || b.x + b.w > sf.size.width || b.y + b.h > sf.size.height);
+    // Off screen means not on ANY display. This used to test against the main screen alone, with CG's
+    // 0,0 at its corner -- so on a Mac with a display above or left of the laptop, a window placed
+    // squarely on that display had a negative coordinate, was judged off screen, and was moved on
+    // every launch: a visible jump just after the window appeared.
+    var off = !onSomeScreen(b);
     appendFile(FULLLOG, stamp() + '  window at ' + Math.round(b.x) + ',' + Math.round(b.y) + ' '
       + Math.round(b.w) + 'x' + Math.round(b.h) + (off ? '  — off screen, re-centring' : '') + '\n');
     if (!off) return true;
@@ -358,7 +438,8 @@ function startNext() {
   var s = stepById(id);
   if (s && s.state === 'ok') { startNext(); return; }
   queuedDone++;
-  state.view = 'work';
+  state.view = bootMode ? 'boot' : 'work';
+  if (bootMode) { state.say = 'Starting the dashboard'; state.pct = Math.max(state.pct, 20); }
   if (quietStart) {
     // Said once by decideWhatToDo and left alone: no step count, no row list, nothing to read.
     state.title = 'Starting JobSeeker';
@@ -396,6 +477,7 @@ function afterStep(ok) {
   }
   running = null; task = null;
   if (state.failed) {
+    leaveBoot();   // a failure is shown by the setup window's rows, never behind the veil
     // Stop the run and let the user decide: retry that row, or continue without it.
     state.title = 'One step did not finish';
     state.subtitle = 'Nothing else was changed. Try it again, or carry on without it.';
@@ -424,6 +506,7 @@ function onQueueEmpty() {
   // (or deliberately left), this launch is just opening the app: go to the dashboard.
   if (setupFinished() && startStep && startStep.state === 'ok') {
     state.brandnote = '';
+    if (bootMode) { finishBoot(); return; }
     openDashboard();
     return;
   }
@@ -472,13 +555,77 @@ function onQueueEmpty() {
 //   * `welcome_done:`  the wizard was finished,
 //   * `welcome_left:`  the user walked out of it deliberately,
 //   * markets or roles in data/criteria.md — an install from BEFORE the wizard existed, or one set
-//     up with /onboard in the terminal. This is the case that matters most here: an established
+//     up with /jobseeker onboard in the terminal. This is the case that matters most here: an established
 //     install has none of the wizard's bookkeeping and must not be treated as brand new.
 function setupFinished() {
   var cfg = readFile(REPO + '/config/job-seeker.config.md');
   if (/^welcome_(done|left):[ \t]*\S/m.test(cfg)) return true;
   var crit = readFile(REPO + '/data/criteria.md');
   return /^markets:[ \t]*\S/m.test(crit) || /^roles:[ \t]*\S/m.test(crit);
+}
+
+// ------------------------------------------------------------------ the boot veil
+// Paint the veil's last frame -- the full bar, "Opening your dashboard" -- and hand over a beat later.
+// The dashboard's veil paints exactly that frame, so the bar must reach it HERE first; loading at
+// once would race the render and the bar would visibly jump at the one moment meant to be still.
+// The ready loop's openAt check does the handover once the bar's .25s transition has run.
+function finishBoot() {
+  state.say = 'Opening your dashboard';
+  state.pct = 100;
+  push();
+  openAt = Date.now() + 350;
+}
+
+// The launch needs real setup work (a missing runtime, a failed start): go back to the setup window
+// and let its rows say why. The veil is for a Mac that is merely starting; it must never stand in
+// front of a problem.
+function leaveBoot() {
+  if (!bootMode) return;
+  bootMode = false;
+  showWindow();
+  quietStart = false;
+  state.view = 'work';
+  win.title = 'JobSeeker Setup';
+  try { win.styleMask = win.styleMask & ~$.NSWindowStyleMaskResizable; } catch (e) { /* keep it */ }
+  win.minSize = $.NSMakeSize(600, 500);
+  win.setFrameDisplayAnimate($.NSMakeRect(0, 0, 800, 688), true, true);
+  placeWindow(win);
+  placementChecked = false; placementTries = 0;
+}
+
+// The title bar and the window's own background must be the veil's colours from the first frame. Left
+// alone they follow the Mac -- dark on a Mac in dark mode -- until syncAppearance reads the page about
+// 0.6s later and flips them: a dark bar over a light veil, then a light one.
+function applyLaunchAppearance(theme) {
+  try {
+    if (theme === 'light') app.appearance = $.NSAppearance.appearanceNamed($.NSAppearanceNameAqua);
+    else if (theme === 'dark') app.appearance = $.NSAppearance.appearanceNamed($.NSAppearanceNameDarkAqua);
+  } catch (e) { /* the page's own sync will catch up */ }
+  // What the page is about to report, so syncAppearance finds nothing to flip.
+  themeSeen = themeApplied = theme;
+}
+
+// The veil's background, for the moment between the window appearing and WebKit's first composite.
+function veilBackground(theme) {
+  var dark = theme === 'dark';
+  if (theme === 'auto') {
+    try { dark = /Dark/.test(String(ObjC.unwrap(app.effectiveAppearance.name))); } catch (e) {}
+  }
+  return dark ? $.NSColor.colorWithSRGBRedGreenBlueAlpha(15 / 255, 18 / 255, 32 / 255, 1)      // #0f1220
+              : $.NSColor.colorWithSRGBRedGreenBlueAlpha(247 / 255, 245 / 255, 240 / 255, 1);  // #f7f5f0
+}
+
+function showWindow() {
+  if (shown) return;
+  win.makeKeyAndOrderFront(null);
+  win.orderFrontRegardless;
+  app.activateIgnoringOtherApps(true);
+  shown = true;
+}
+
+function rememberedTheme() {
+  var t = readFile(WORK + '/appearance').trim();
+  return (t === 'light' || t === 'dark') ? t : 'auto';
 }
 
 // ------------------------------------------------------------------ the handoff
@@ -508,11 +655,18 @@ function openDashboard() {
   win.title = 'JobSeeker';
   // Breadcrumb. When someone reports "it opened on a blank window", this line in
   // data/.setup/setup.log is the difference between knowing the handoff happened and guessing.
-  appendFile(FULLLOG, stamp() + '  window handed over to ' + url + '\n');
-  win.setFrameDisplayAnimate($.NSMakeRect(0, 0, 1180, 900), true, false);
-  placeWindow(win);
-  placementChecked = false; placementTries = 0;   // re-check once the resized window is up
-  win.minSize = $.NSMakeSize(880, 620);
+  if (bootMode) {
+    // Already at dashboard size, and the dashboard draws the same veil at its first paint and fades
+    // it: no resize, no page swap anyone can see.
+    url += '/?boot=1';
+    appendFile(FULLLOG, stamp() + '  window handed over to ' + url + '\n');
+  } else {
+    appendFile(FULLLOG, stamp() + '  window handed over to ' + url + '\n');
+    win.setFrameDisplayAnimate($.NSMakeRect(0, 0, 1180, 900), true, false);
+    placeWindow(win);
+    placementChecked = false; placementTries = 0;   // re-check once the resized window is up
+    win.minSize = $.NSMakeSize(880, 620);
+  }
   wv.loadRequest($.NSURLRequest.requestWithURL($.NSURL.URLWithString($(url))));
 }
 
@@ -586,12 +740,25 @@ function run() {
   app.setActivationPolicy($.NSApplicationActivationPolicyRegular);
   buildMenu();
 
-  var rect = $.NSMakeRect(0, 0, 800, 660);   // a title bar costs height; give it back
-  win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer(
-    rect,
-    $.NSWindowStyleMaskTitled | $.NSWindowStyleMaskClosable | $.NSWindowStyleMaskMiniaturizable,
-    2, false);
-  win.title = 'JobSeeker Setup';
+  // A set-up install opens where the dashboard will be, at the size it will be: the resize from
+  // setup size to dashboard size was one of the three jumps this launch used to make.
+  bootMode = setupFinished();
+  var rect = bootMode ? $.NSMakeRect(0, 0, 1180, 872)   // 900 tall with the title bar, as the dashboard
+                      : $.NSMakeRect(0, 0, 800, 660);   // a title bar costs height; give it back
+  var mask = $.NSWindowStyleMaskTitled | $.NSWindowStyleMaskClosable | $.NSWindowStyleMaskMiniaturizable;
+  if (bootMode) mask = mask | $.NSWindowStyleMaskResizable;
+  win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer(rect, mask, 2, false);
+  win.title = bootMode ? 'JobSeeker' : 'JobSeeker Setup';
+  if (bootMode) {
+    win.minSize = $.NSMakeSize(880, 620);
+    state.view = 'boot';
+    state.title = 'Starting JobSeeker';
+    state.say = 'Checking this Mac';
+    state.pct = 12;
+    state.theme = rememberedTheme();
+    applyLaunchAppearance(state.theme);
+    win.backgroundColor = veilBackground(state.theme);
+  }
   // A normal title bar, not a transparent full-height one. The transparent version let the page
   // draw right to the top, but it left almost nothing to drag the window by -- only a thin,
   // invisible strip -- so the window was awkward to move. A real title bar is the obvious handle,
@@ -605,12 +772,16 @@ function run() {
 
   var cfg = $.WKWebViewConfiguration.alloc.init;
   wv = $.WKWebView.alloc.initWithFrameConfiguration(rect, cfg);
-  wv.loadFileURLAllowingReadAccessToURL(
-    $.NSURL.fileURLWithPath($(UI)), $.NSURL.fileURLWithPath($(RES)));
+  wv.setUIDelegate(linkOpener);   // see "link opener" above: without it, no link opens
+  // A boot tells the page so in its address, which it reads before painting anything (see the head
+  // script in ui.html). Resolved against the file URL so any escaping in the path stays right.
+  var uiURL = $.NSURL.fileURLWithPath($(UI));
+  if (bootMode) uiURL = $.NSURL.URLWithStringRelativeToURL($('#boot=' + state.theme), uiURL).absoluteURL;
+  wv.loadFileURLAllowingReadAccessToURL(uiURL, $.NSURL.fileURLWithPath($(RES)));
   win.contentView = wv;
-  win.makeKeyAndOrderFront(null);
-  win.orderFrontRegardless;
-  app.activateIgnoringOtherApps(true);
+  // A boot shows the window only once the page has painted the veil (the wait-ui tick), so the first
+  // thing anyone sees is the veil -- never an empty window, never the setup screen.
+  if (!bootMode) showWindow();
   // The on-screen check happens on the first idle tick, not here: the window server does not know
   // about the window yet in this run-loop turn, so asking it now returns nothing and the check
   // quietly does nothing at all.
@@ -643,11 +814,13 @@ function tick() {
   if (!win) return;
 
   // The user closed the window. Minimising is not closing -- isVisible goes false for both.
-  if (!win.isVisible && !win.isMiniaturized) { stopServer(); app.terminate(null); return; }
+  // Not before it has been shown: a boot keeps the window hidden on purpose until the veil is painted,
+  // and reading that as "closed" would quit the app on its own launch.
+  if (shown && !win.isVisible && !win.isMiniaturized) { stopServer(); app.terminate(null); return; }
 
   // A window takes a few run-loop turns to reach the window server, so keep asking until it
   // answers rather than giving up on the first look -- which is what made this check a no-op.
-  if (!placementChecked) {
+  if (!placementChecked && shown) {                  // the window server only knows a shown window
     placementTries++;
     if (ensureOnScreen(win) || placementTries > 40) placementChecked = true;
   }
@@ -655,6 +828,11 @@ function tick() {
 
   if (phase === 'wait-ui') {
     if (wv.title.isNil() || !wv.title.js) return;   // page still parsing
+    if (!shown) {
+      if (wv.isLoading) return;                      // parsed, not yet painted
+      showWindow();
+      appendFile(FULLLOG, stamp() + '  window shown on the boot veil\n');
+    }
     appendFile(FULLLOG, stamp() + '  ui loaded, window on screen: ' + onScreen() + '\n');
     // Do not show a setup checklist to someone who is not setting anything up.
     //
@@ -670,7 +848,7 @@ function tick() {
     // work after all, decideWhatToDo puts the wizard back.
     if (setupFinished()) {
       quietStart = true;
-      state.view = 'work';
+      state.view = bootMode ? 'boot' : 'work';
       state.title = 'Starting JobSeeker';
       state.subtitle = 'One moment.';
       state.brandnote = '';
@@ -702,6 +880,7 @@ function tick() {
 
   if (task) {
     drainStepLog();
+    if (bootMode) state.say = 'Starting the dashboard';   // the step's own words repeat the title
     if (!task.isRunning) afterStep(task.terminationStatus === 0);
     push();
     return;
@@ -762,6 +941,7 @@ function decideWhatToDo() {
   if (missing.length === 0) {
     // Set up, and already answering: an ordinary launch of an app configured weeks ago.
     state.brandnote = '';
+    if (bootMode) { finishBoot(); return; }
     openDashboard();
     return;
   }
@@ -778,6 +958,7 @@ function decideWhatToDo() {
   // There is real work to do, so open on the welcome rather than dropping someone straight into
   // a list of things about to be installed on their Mac. Whatever the quiet start assumed, this
   // launch IS a setup run.
+  leaveBoot();
   quietStart = false;
   state.view = 'welcome';
   state.status = 'Nothing has been installed yet.|';
