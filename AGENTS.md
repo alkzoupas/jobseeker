@@ -39,3 +39,52 @@ re-read whole files.
 After big code changes, refresh the graph with `graft build` (deterministic,
 no API key, $0).
 <!-- graft:end -->
+
+## Hindsight — cross-session memory
+
+A local Hindsight memory server may be available at `http://localhost:8888`
+(Docker container `hindsight`; not guaranteed to be running on every machine
+or environment). This is **best-effort**: if the server isn't reachable,
+skip it silently and proceed with the task normally — never block or warn
+the user about it. All calls target the `jobseeker` bank.
+
+**Before modifying this repository**, recall relevant memory:
+
+```bash
+curl -s -m 5 -X POST http://localhost:8888/v1/default/banks/jobseeker/memories/recall \
+  -H "Content-Type: application/json" \
+  -d '{"query": "<one line summarizing the task you are about to do>"}'
+```
+
+Use the results (architecture, test/build commands, code conventions,
+previously failed approaches, unresolved decisions) to orient before making
+changes. If the query is broad ("what should I know before touching this
+repo"), a `reflect` call synthesizes a direct answer instead of a raw fact
+list — it's an agentic loop (several internal recall calls + LLM
+synthesis) and can take 60-120s on a local model (much faster on a hosted
+API), so use a long timeout and skip it (fall back to `recall`) rather than
+block the task on it:
+
+```bash
+curl -s -m 120 -X POST http://localhost:8888/v1/default/banks/jobseeker/reflect \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What should I know before modifying this repo?"}'
+```
+
+**At the end of the session**, retain a concise summary of durable technical
+decisions and any verified environment or debugging lessons — not a full
+transcript, not routine progress narration. Good candidates: an architectural
+choice and its rationale, a newly locked invariant, a command or config that
+turned out to matter, an approach that was tried and rejected (and why), a
+root-caused bug and its fix, or an open question left unresolved.
+
+```bash
+curl -s -m 15 -X POST http://localhost:8888/v1/default/banks/jobseeker/memories \
+  -H "Content-Type: application/json" \
+  -d '{"items": [{"content": "<concise summary>", "context": "<one line: what task/session produced this>"}]}'
+```
+
+Skip the retain call entirely if nothing durable came out of the session
+(e.g. pure exploration, or a change already fully self-documented in a commit
+message or decisions doc) — don't manufacture a summary just to have
+something to store.
