@@ -377,10 +377,14 @@ async function main() {
     }
     const liTab = ctx.findTab("linkedin.com/messaging");
 
-    // Open exactly the threads whose contents will be kept — no more. Anything ignored by rule,
-    // older than the watermark, or not job-related is none of this system's business, and opening
-    // it would be reading a private conversation for nothing. Unread threads are excluded here as
-    // well as inside readThreads, because the cost of getting that wrong is the user's own inbox.
+    // Open every active, already-read thread — not just the ones that already LOOK job-related.
+    // looksJobRelated() only sees the list preview (the last line), and the actionable content is
+    // usually above it, not in it: a recruiter thread whose latest message is "Thanks!" or a voice
+    // note would otherwise never be opened, and the ask higher up in it would be silently dropped
+    // rather than logged. Classification into job-related/not happens AFTER reading, against the
+    // full thread text, same as the interactive chat-tracker agent's rule ("do not judge from list
+    // preview"). Anything ignored by rule, unread, or older than the watermark is still excluded —
+    // opening those would be reading a private conversation, or a real account's inbox, for nothing.
     const worthReading = (res) => {
       const raw = sinceFor[res.source.toLowerCase()];
       const since = raw ? new Date(raw) : null;
@@ -388,7 +392,7 @@ async function main() {
         if (isIgnored(c.name) || c.unread > 0) return false;
         const at = parseListTime(c.time);
         if (since && at && at < since) return false;
-        return looksJobRelated(c, known);
+        return true;
       });
     };
 
