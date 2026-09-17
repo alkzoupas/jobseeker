@@ -1,3 +1,5 @@
+@[AGENTS.md](http://AGENTS.md)
+
 # JobSeeker — project instructions
 
 This repo is a local, Markdown-based job-search assistant (agents + a tiny dashboard). **Local
