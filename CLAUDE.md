@@ -1,4 +1,4 @@
-@[AGENTS.md](http://AGENTS.md)
+@AGENTS.md
 
 # JobSeeker — project instructions
 
