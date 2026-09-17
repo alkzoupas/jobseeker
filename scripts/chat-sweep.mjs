@@ -375,7 +375,19 @@ async function main() {
         if (ok) { waTab = cand; break; }
       }
     }
-    const liTab = ctx.findTab("linkedin.com/messaging");
+    // LinkedIn's own floating message overlay (the chat bubble available on ANY LinkedIn page, e.g.
+    // a Jobs search results page) pushes a `/messaging/thread/...` URL into the address bar via
+    // client-side routing without ever becoming the real Messaging app — the tab's title stays
+    // whatever page the overlay is floating over (e.g. "... Jobs in United States | LinkedIn") and
+    // its DOM never grows the conversation-list markup `linkedinChatList` reads. A plain URL-substring
+    // match (ctx.findTab's default) cannot tell that decoy apart from a genuine Messaging tab, and if
+    // it sorts earlier in tab order it gets scripted instead — silently reporting "0 conversations"
+    // forever even with real unread threads open one tab over. Same shape of bug as the WhatsApp
+    // duplicate-tab fix above: prefer the candidate that is actually what it claims to be, using the
+    // one signal the overlay never fakes — the real Messaging app always titles its tab
+    // "... Messaging | LinkedIn".
+    const liCandidates = ctx.tabs.filter((t) => t.url.includes("linkedin.com/messaging"));
+    const liTab = liCandidates.find((t) => /\bMessaging \| LinkedIn\b/i.test(t.title || "")) || liCandidates[0] || null;
 
     // Open every active, already-read thread — not just the ones that already LOOK job-related.
     // looksJobRelated() only sees the list preview (the last line), and the actionable content is
@@ -432,7 +444,21 @@ async function main() {
     if (!enabled.linkedin) {
       out.push({ source: "LinkedIn", swept: false, reason: "disabled in config (linkedin_enabled)", chats: [] });
     } else if (liTab) {
-      out.push(await sweep({ ctx, source: "LinkedIn", host: "linkedin.com/messaging", snippet: "linkedinChatList", tab: liTab }));
+      let res = await sweep({ ctx, source: "LinkedIn", host: "linkedin.com/messaging", snippet: "linkedinChatList", tab: liTab });
+      // A LinkedIn tab that has sat open a long time can get stuck rendering an old client-side
+      // state — measured 2026-09-16: a genuine "Messaging | LinkedIn" tab whose conversation-list
+      // markup had gone from the real classes to opaque per-build hashes, every row an empty
+      // placeholder, on a tab that had simply been open a while. A fresh reload of that SAME tab (not
+      // a new one — no WhatsApp-style session cost here) got the current build back and the list
+      // extracted correctly. So one empty extraction is treated as "maybe stale", not "definitely
+      // broken": reload the tab in place and give it exactly one more try before reporting a gap.
+      if (!res.swept && /0 conversations/.test(res.reason || "")) {
+        const refreshed = await ctx.reloadTab(liTab).catch(() => null);
+        if (refreshed) {
+          res = await sweep({ ctx, source: "LinkedIn", host: "linkedin.com/messaging", snippet: "linkedinChatList", tab: refreshed });
+        }
+      }
+      out.push(res);
     } else if (DO_LINKEDIN) {
       const res = await ctx.withOwnedTab("https://www.linkedin.com/messaging/", async (tab) => {
         await ctx.waitForSelector(tab, 'li[class*="conversation-listitem"]', { timeoutMs: 45_000 });

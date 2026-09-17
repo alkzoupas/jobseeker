@@ -183,6 +183,29 @@ export async function withOwnedTab(url, fn) {
   }
 }
 
+/**
+ * Reload a tab we did NOT open ourselves, in place, and wait for the reload to settle.
+ *
+ * Exists for one specific failure: a tab that has been open a long time can get stuck rendering an
+ * old client-side state — e.g. a LinkedIn Messaging tab measured 2026-09-16 whose conversation-list
+ * markup had gone from the real `msg-conversation-listitem` classes to opaque per-build hashes with
+ * every row an empty placeholder, on a tab that had simply been sitting open. A fresh navigation to
+ * the exact same URL got the current build back and the list extracted correctly. A normal page
+ * reload carries none of WhatsApp Web's single-session cost (that risk is specific to OPENING A
+ * SECOND tab on the host, not to refreshing the one that already exists), so this is safe to use on
+ * any already-open tab the caller owns a reference to.
+ */
+export async function reloadTab(tab) {
+  const d = getDriver();
+  const before = tab.url;
+  // Deliberately skips waitForNavigation: that helper waits for the URL to CHANGE, and a same-URL
+  // reload never does, so it would just burn its full timeout every call for no benefit here.
+  const moved = await d.navigateTab(tab, before);
+  await new Promise((r) => setTimeout(r, 500)); // give Chrome a beat to start tearing down the old page
+  await waitForLoad(moved).catch(() => {});
+  return { ...tab, ...moved, url: before };
+}
+
 /** What a tab is showing, by id. `null` when the tab cannot be found or the driver cannot say. */
 async function urlOfTab(d, tab) {
   try {
@@ -330,6 +353,7 @@ export async function withBrowser(fn) {
       withOwnedTab,
       withScratchTab,
       waitForSelector,
+      reloadTab,
       openConversation,
     });
   });
