@@ -2775,6 +2775,16 @@ async function readJobRunAttempts(started) {
 //   running after a failure  amber, with the failure said: an attempt failed and a retry is under way
 //   finished                 green / amber (partly) / red (failed and stopped), for 12 hours after
 //   nothing recent           no badge
+// What a run could not do, in the user's words rather than the slugs the machine passes around.
+// The blocker text underneath is reproduced verbatim (AGENT-RULES §10) — each one is written as
+// the exact one-time fix, and paraphrasing it leaves the reader with nothing to act on.
+const GAP_SAYS = {
+  "browser-read":
+    "WhatsApp Web and LinkedIn messages were not read, and no LinkedIn role search ran — Chrome could not be read.",
+  "boards-queued": "Careers boards that need a browser were left unread for the same reason.",
+  "digest-undelivered": "Your digest was written but never reached you.",
+};
+
 const RECENT_FINISH = 12 * 60 * 60 * 1000;
 
 function recentLast(busy, last) {
@@ -2836,14 +2846,36 @@ function runStatusPanel({ busy, last, progress, attempts }) {
   if (!last) return "";
   const v = lastVerdict(last);
   const recent = recentLast(busy, last);
-  return `<div class="runmenu-last ${recent ? `recent ${v.cls}` : ""}">
-      <p>Last run from here: <b>${esc(last.label || runLabel(last.slug))}</b>
-        <span class="${v.cls === "ok" ? "ok-pill" : v.cls === "warn" ? "warn-pill" : "bad-pill runfail-pill"}">${esc(v.says)}</span>
-        <span class="muted">${esc(localStamp(last.finished))}</span></p>
-      ${last.detail && v.cls !== "ok" ? `<p class="runlast-why">${esc(last.detail)}</p>` : ""}
-      ${attemptsHTML(attempts, false)}
-      ${recent ? `<p class="runlast-act"><a href="" onclick="location.reload();return false">Reload to see what it found</a></p>` : ""}
-    </div>`;
+  // Folded by default: the menu is for starting a run, and the last one is a line to open when
+  // wanted, not a block to read past. A run that finished partly names what it could not do in the
+  // same sentences Today uses, instead of the slugs the status file carries.
+  const gapsM = /^(.*?):\s*(\[.*\])\s*$/.exec(String(last.detail || ""));
+  let why = "";
+  if (gapsM) {
+    let gaps = [];
+    try {
+      gaps = JSON.parse(gapsM[2]);
+    } catch {
+      /* not a list after all */
+    }
+    why = gaps.length
+      ? `<p class="runlast-why">Part of the run could not finish:</p><ul class="runlast-gaps">${gaps
+          .map((g) => `<li>${esc(GAP_SAYS[g] || g)}</li>`)
+          .join("")}</ul>`
+      : "";
+  } else if (last.detail && v.cls !== "ok") {
+    why = `<p class="runlast-why">${esc(last.detail)}</p>`;
+  }
+  return `<details class="lastrun" id="lastrun">
+      <summary><span class="lr-chev" aria-hidden="true">›</span><span class="lr-title">Last run results</span>
+        <span class="${v.cls === "ok" ? "ok-pill" : v.cls === "warn" ? "warn-pill" : "bad-pill runfail-pill"}">${esc(v.says)}</span></summary>
+      <div class="lastrun-body">
+        <p class="lr-what"><b>${esc(last.label || runLabel(last.slug))}</b> <span class="muted">· ${esc(localStamp(last.finished))}</span></p>
+        ${why}
+        ${attemptsHTML(attempts, false)}
+        ${recent ? `<p class="runlast-act"><a href="" onclick="location.reload();return false">Reload to see what it found</a></p>` : ""}
+      </div>
+    </details>`;
 }
 
 // Everything the two status fragments need, gathered once per page render and once per poll.
@@ -2871,10 +2903,10 @@ function runNowMenu({ tab, busy, status = null }) {
       title="${esc(busy ? `${runLabel(busy.slug)} is already running` : "Start one of the job-search commands now")}">
       Run now <span class="caret" aria-hidden="true">▾</span></button>
     <div id="runmenu" class="pop pop-run hide" role="dialog" aria-label="Run now">
+      <div id="runstatus-menu" class="runstatus-menu">${runStatusPanel(status || { busy })}</div>
       <p class="pop-h">Run now</p>
       <p class="pop-sub">Nothing here applies or sends — it queues approvals for you, exactly as the
         scheduled run does. One at a time: Chrome cannot be driven by two.</p>
-      <div id="runstatus-menu" class="runstatus-menu">${runStatusPanel(status || { busy })}</div>
       <div class="runmenu-list">
         ${RUN_MENU.map(
           ([slug, label, sub]) => `<form method="POST" action="/run-now">
@@ -3486,15 +3518,6 @@ function todayHTML(all, dueToday, appTok, appIds) {
         })
       : "";
 
-  // What a run could not do, in the user's words rather than the slugs the machine passes around.
-  // The blocker text underneath is reproduced verbatim (AGENT-RULES §10) — each one is written as
-  // the exact one-time fix, and paraphrasing it leaves the reader with nothing to act on.
-  const GAP_SAYS = {
-    "browser-read":
-      "WhatsApp Web and LinkedIn messages were not read, and no LinkedIn role search ran — Chrome could not be read.",
-    "boards-queued": "Careers boards that need a browser were left unread for the same reason.",
-    "digest-undelivered": "Your digest was written but never reached you.",
-  };
 
   const runBanner = (() => {
     if (!run) return "";
@@ -4577,11 +4600,20 @@ button.runbadge{font:inherit;font-size:12px;font-weight:600;border:0;cursor:poin
 .runbadge.done.ok{background:rgba(46,160,67,.16);color:#2ea043}
 .runbadge.done.warn{background:rgba(214,138,0,.16);color:#d68a00}
 .runbadge.done.bad{background:rgba(229,72,77,.14);color:#e5484d}
-.runmenu-last p{margin:0}
+.lastrun{margin:0 0 10px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.lastrun summary{display:flex;align-items:center;gap:7px;cursor:pointer;list-style:none;font-size:12.5px;font-weight:600;color:var(--fg)}
+.lastrun summary::-webkit-details-marker{display:none}
+.lastrun summary:hover .lr-title{color:var(--acc)}
+.lr-chev{display:inline-block;width:10px;font-size:15px;line-height:1;color:var(--mut);transition:transform .15s ease}
+.lastrun[open] .lr-chev{transform:rotate(90deg)}
+.lastrun summary .ok-pill,.lastrun summary .warn-pill,.lastrun summary .bad-pill{font-size:11px;padding:1px 8px;font-weight:600}
+.lastrun-body{margin:8px 0 0 17px;display:flex;flex-direction:column;gap:5px;font-size:12px;line-height:1.45}
+.lastrun-body p{margin:0}
+.runlast-gaps{margin:0;padding-left:16px;color:var(--fg)}
+.runlast-gaps li{margin:2px 0}
 .runfail-pill{background:rgba(229,72,77,.14);color:#e5484d}
-.runmenu-last.recent.bad{border-top-color:rgba(229,72,77,.45)}
-.runlast-why{margin-top:4px!important;font-size:11.5px;line-height:1.45;color:var(--fg)}
-.runlast-act{margin-top:6px!important}
+.runlast-why{font-size:12px;line-height:1.45;color:var(--fg)}
+.runlast-act{margin-top:2px!important}
 /* The run checklist: a box per step, ticked when the playbook says the step is done. */
 .runsteps{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:5px}
 .rs{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mut)}
@@ -4606,7 +4638,6 @@ button.runbadge{font:inherit;font-size:12px;font-weight:600;border:0;cursor:poin
 .runmenu-item[disabled]{opacity:.4;cursor:not-allowed}
 .rmi-label{font-size:13px;font-weight:650}
 .rmi-sub{font-size:11px;color:var(--mut);line-height:1.4}
-.runmenu-last{margin:10px 0 0;padding-top:9px;border-top:1px solid var(--line);font-size:11px;color:var(--mut)}
 /* Add task — the one button in the bar that CREATES something, so it is filled rather than
    outlined and reads as the primary act next to Run now's outline. */
 .addtask-btn{background:var(--acc);border-color:var(--acc);color:var(--bg);font-weight:700;gap:5px}
@@ -5480,7 +5511,11 @@ const JS = `${VIEWPORT_JS}
       if (!d.status) return;
       var b = document.getElementById('runstatus-badge'), m = document.getElementById('runstatus-menu');
       if (b && b.innerHTML !== d.status.badge) b.innerHTML = d.status.badge;
-      if (m && m.innerHTML !== d.status.menu) m.innerHTML = d.status.menu;
+      if (m && m.innerHTML !== d.status.menu) {
+        var lr = document.getElementById('lastrun'), wasOpen = !!(lr && lr.open);
+        m.innerHTML = d.status.menu;
+        var lr2 = document.getElementById('lastrun'); if (lr2 && wasOpen) lr2.open = true;
+      }
       /* The run ended while this page was open: the buttons it greyed out work again. */
       if (live && !d.running) {
         document.querySelectorAll('[data-busy]').forEach(function(el){
