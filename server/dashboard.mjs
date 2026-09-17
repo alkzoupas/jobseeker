@@ -2867,7 +2867,7 @@ function runStatusPanel({ busy, last, progress, attempts }) {
     why = `<p class="runlast-why">${esc(last.detail)}</p>`;
   }
   return `<details class="lastrun" id="lastrun">
-      <summary><span class="lr-chev" aria-hidden="true">›</span><span class="lr-title">Last run results</span>
+      <summary><span class="lr-title">Last run results</span>
         <span class="${v.cls === "ok" ? "ok-pill" : v.cls === "warn" ? "warn-pill" : "bad-pill runfail-pill"}">${esc(v.says)}</span></summary>
       <div class="lastrun-body">
         <p class="lr-what"><b>${esc(last.label || runLabel(last.slug))}</b> <span class="muted">· ${esc(localStamp(last.finished))}</span></p>
@@ -4601,13 +4601,11 @@ button.runbadge{font:inherit;font-size:12px;font-weight:600;border:0;cursor:poin
 .runbadge.done.warn{background:rgba(214,138,0,.16);color:#d68a00}
 .runbadge.done.bad{background:rgba(229,72,77,.14);color:#e5484d}
 .lastrun{margin:0 0 10px;padding-bottom:10px;border-bottom:1px solid var(--line)}
-.lastrun summary{display:flex;align-items:center;gap:7px;cursor:pointer;list-style:none;font-size:12.5px;font-weight:600;color:var(--fg)}
-.lastrun summary::-webkit-details-marker{display:none}
+.lastrun summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--fg)}
+.lastrun summary .lr-title{margin-left:2px;margin-right:6px}
 .lastrun summary:hover .lr-title{color:var(--acc)}
-.lr-chev{display:inline-block;width:10px;font-size:15px;line-height:1;color:var(--mut);transition:transform .15s ease}
-.lastrun[open] .lr-chev{transform:rotate(90deg)}
 .lastrun summary .ok-pill,.lastrun summary .warn-pill,.lastrun summary .bad-pill{font-size:11px;padding:1px 8px;font-weight:600}
-.lastrun-body{margin:8px 0 0 17px;display:flex;flex-direction:column;gap:5px;font-size:12px;line-height:1.45}
+.lastrun-body{margin:8px 0 0 14px;display:flex;flex-direction:column;gap:5px;font-size:12px;line-height:1.45}
 .lastrun-body p{margin:0}
 .runlast-gaps{margin:0;padding-left:16px;color:var(--fg)}
 .runlast-gaps li{margin:2px 0}
@@ -5529,8 +5527,12 @@ const JS = `${VIEWPORT_JS}
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(d){
           if (!d) return;
-          swapStatus(d);
-          if (window.__swapDigest) window.__swapDigest(d.digest);
+          /* Fragments from a newer build carry markup this page has no styles for, so a stale page
+             waits for its reload instead of swapping them in half-styled. */
+          if (!d.build || d.build === BUILD) {
+            swapStatus(d);
+            if (window.__swapDigest) window.__swapDigest(d.digest);
+          }
           /* A different build is answering: this page is left over from before an update. Reload for
              the new one -- at a quiet moment, like any other reload here. The session note stops a
              loop if something between here and the server keeps handing back the old page. */
