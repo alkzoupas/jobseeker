@@ -33,6 +33,7 @@ Bash(node scripts/browser-do.mjs:*) \
 Bash(node scripts/check-urls.mjs:*) \
 Bash(node scripts/discover-board.mjs:*) \
 Bash(node scripts/board-sweep.mjs:*) \
+Bash(node scripts/board-scan.mjs:*) \
 Bash(node scripts/chat-sweep.mjs:*) \
 mcp__claude_ai_Gmail__search_threads \
 mcp__claude_ai_Gmail__get_thread \

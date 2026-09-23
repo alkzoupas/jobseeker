@@ -28,6 +28,8 @@ jobs:
       # caught here too rather than only on the Windows runner.
       - run: npm run test:platform
       - run: npm run test:bridge
+      # No network: every board adapter runs against a trimmed copy of its real payload.
+      - run: npm run test:board-scan
       # The wizard suite builds a throwaway copy of the repo with a fake HOME and stubbed
       # launchctl/claude, because the steps it exercises write to config/ and templates/ (resolved
       # from the repo root, NOT from JOBSEEKER_DATA_DIR) and install a launch agent.
@@ -51,6 +53,8 @@ jobs:
       - run: npm run test:security
       - run: npm run test:platform
       - run: npm run test:bridge
+      # No network: every board adapter runs against a trimmed copy of its real payload.
+      - run: npm run test:board-scan
       # These two build a sandbox with a fake HOME *and* USERPROFILE, .cmd stubs instead of bash
       # ones, and drive every script through platform.scriptCommand() — so on this runner they
       # exercise scripts\win\*.ps1 rather than the bash originals. test:runstate registers a real

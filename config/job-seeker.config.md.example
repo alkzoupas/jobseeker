@@ -46,6 +46,12 @@ company_aliases:
 ignored_topics:
 
 
+# Board scan (scripts/board-scan.mjs) — extra title phrases, comma-separated. By default a posting
+# is kept when its title contains every word of one of the `roles` in data/criteria.md. Add phrases
+# for titles your target role also goes by, and phrases for look-alikes you never want.
+board_scan_title_include:
+board_scan_title_exclude:
+
 # Spend controls. Costs come from the run itself (claude --output-format json) and are logged to
 # data/spend.md, which the dashboard reads.
 # Per-run cap, passed to claude as --max-budget-usd. A run that hits it stops and says so.

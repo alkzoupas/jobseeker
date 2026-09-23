@@ -270,6 +270,40 @@ a hiring-signal source at all — the "who's hiring that I don't already know ab
   same principle as the a16z digest above; don't withhold a real find because it's outside the
   prioritized vendor list, just say so in the rationale.
 
+**1i. Board scan — mechanical, stateless, ALWAYS run this, before the vendor-site pass.**
+```
+node scripts/board-scan.mjs
+```
+Reads **every** `access: json` board in `data/boards.md` (Greenhouse, Lever, Ashby, Workable,
+Workday, SmartRecruiters, Recruitee, Pinpoint, Rippling) in seconds, for zero tokens. It keeps a
+posting only when its title contains every word of one of `criteria.md`'s `roles` (plus
+`board_scan_title_include` in the config) and its location is in scope or unknown. It drops anything
+already proposed, dismissed or applied to (the same `list-keys` index you use), and writes the
+survivors to `data/.board-scan.json`. It prints a summary; use `--json` for everything.
+- **One scan per curation run.** If `data/.board-scan.json` has a `generated_at` from the last
+  2 hours, read that file instead of re-running the scan. Parallel per-market scouts must not each
+  re-read all ~130 boards.
+- **Every candidate is UNVERIFIED.** The scan read the board's feed, not the posting page. Apply
+  rule 0 below to each one you propose, as for any source. The `url` is the employer's own ATS
+  link, so it is the right thing to open.
+- **Read the `flags` before scoring.** `possible repost of app_…` means surface it as a repost in
+  the rationale (AGENT-RULES §6), never drop it silently. `dismissed-domain term` means the title
+  carries a word the user keeps rejecting, so it needs a stated reason to propose. `location unclear`
+  means check the posting's real location. `posted Nd ago` feeds the legitimacy judgement.
+- **This replaces per-board fetching for JSON boards.** Do NOT `WebFetch` a `json` board the scan
+  read OK (`coverage.read_ok`); the scan already saw every posting on it. Only boards under
+  `coverage.errors` (e.g. a 404, which means the slug moved: re-run `discover-board.mjs`) and
+  `coverage.unsupported` still need you, along with the `html`/`browser`/`blocked`/`manual` boards
+  as before.
+- **Title filter too narrow?** `dropped_samples.title_near_miss` lists titles that had every role
+  word but were rejected (e.g. "Engineering Program Manager"). If a target role goes by a name the
+  filter can't see ("Software Development Manager"), say so in your report so the user can add it
+  to `board_scan_title_include`; do not work around the filter by hand-reading boards.
+- **`possibly_closed`** lists live proposals whose posting is no longer on their fully-read board.
+  Open each one. If it really is gone, dismiss it with the `dead` tag as usual. A reworded title
+  looks identical to a removed one, so never dismiss from this list alone.
+- A scan that read **zero** boards exits non-zero. Report that as a failure, not as "no new roles".
+
 **2. Vendor careers sites — use STATELESS web, not Chrome.** Careers pages are public, so **do NOT use
 the Chrome session** here (reserve Chrome for LinkedIn, where the user's login + preferences matter). Use
 **`WebFetch` / `WebSearch`** (no cookies/session), or **Playwright** if a page is JS-heavy and needs

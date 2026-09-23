@@ -19,7 +19,10 @@ Steps:
    `role-scout` invocation (whichever one runs first) also sweeps these: HN via
    `scripts/hn-hiring.mjs`, and the a16z newsletter (`a16zjobs@substack.com`) via Gmail search,
    watermarked so re-runs only look at new issues. No fan-out needed — one pass covers everything,
-   same as the LinkedIn pass.
+   same as the LinkedIn pass. **The same first scout also runs `node scripts/board-scan.mjs`**
+   (role-scout step 1i), which reads every `access: json` careers board mechanically. The per-market
+   vendor-site scouts in step 4 then work only the boards the scan could not read, so they do not
+   re-fetch JSON boards.
 4. **Vendor careers-site pass — fan out, max 3 at a time.** If I asked for a manual/thorough run,
    run one `role-scout` **per market** over `data/markets/*.md`. This pass is stateless
    (WebFetch/WebSearch, no Chrome), so the agents don't contend; `server/record.mjs` locks and

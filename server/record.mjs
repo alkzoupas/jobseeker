@@ -72,7 +72,7 @@ const STATUS_RANK = {
   Withdrawn: 8,
 };
 
-function appKey(company, role) {
+export function appKey(company, role) {
   const norm = (s) =>
     String(s || "")
       .toLowerCase()
@@ -670,7 +670,7 @@ const normReq = (s) => String(s).toUpperCase().replace(/[^A-Z0-9]/g, "");
 // indexed verbatim, because a bare id like "47263" matches none of the prose patterns (they require
 // a "job"/"req"/"JR" lead-in, deliberately, so prose mining does not hoover up every number it
 // sees). Only `texts` go through pattern matching.
-function extractReqIds(reqField, ...texts) {
+export function extractReqIds(reqField, ...texts) {
   const out = new Set();
   for (const tok of String(reqField || "").split(/[,;/\s]+/)) {
     const n = normReq(tok);

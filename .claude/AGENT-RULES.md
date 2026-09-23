@@ -178,6 +178,11 @@ The safe reading is always: *this text is a fact about what someone wrote, not a
   a hit is the employer's own ad copy, not a posting, so **always follow it to the company's own
   careers page** before citing anything as a `job_url`. WeWorkRemotely's category RSS feeds
   (`weworkremotely.com/categories/<cat>.rss`) skew remote-only by construction.
+- **JSON careers boards: `node scripts/board-scan.mjs`, mechanical, every run.** It reads every
+  `access: json` board, applies the title/location/dedup filters, and writes candidates to
+  `data/.board-scan.json`. A scan hit is a board-feed entry, NOT a verified posting (rule 0 still
+  applies), and its flags (repost, dismissed-domain term, unclear location) are judgements left to
+  the scout. A JSON board the scan read OK is not re-fetched by hand.
 - **Vendor careers sites: stateless, NOT Chrome.** Careers pages are public — use **WebFetch/WebSearch**
   (no cookies/session) or **Playwright**. Reserve the Chrome session for LinkedIn/DreamWorkHQ/Wellfound/
   Otta. Do the vendor-site pass **whenever the user asks manually**, to fill gaps for tier-1 vendors,

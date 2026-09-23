@@ -1,3 +1,36 @@
+# HANDOFF — zero-token board scan (`scripts/board-scan.mjs`) — DONE 2026-09-23
+
+**Goal.** 136 of 186 boards in `data/boards.md` are `access: json`, but only role-scout read them,
+one at a time through the LLM, and step 2 only ran for tier-1 vendors. A mechanical scanner reads
+every JSON board each run, filters by title/location from `data/criteria.md`, drops what's already
+seen (list-keys), and writes survivors to `data/.board-scan.json` for role-scout to score/verify.
+Source: `docs/career-ops-gap-analysis.md` item S1.
+
+## Files
+| File | Change |
+|---|---|
+| `scripts/board-scan.mjs` | new — adapters (greenhouse, lever, ashby, workable, smartrecruiters, recruitee, pinpoint, workday, rippling, aurora jobs-index), filters, dedup, possibly-closed check |
+| `scripts/test-board-scan.mjs` | new — fixture tests for adapters + filters (no network) |
+| `server/record.mjs` | export `appKey`, `extractReqIds` (shared dedup, no logic change) |
+| `package.json` | `board:scan`, `test:board-scan` |
+| `.claude/agents/role-scout.md` | read the scan output first; step 2 no longer tier-1-only for json boards |
+| `config/job-seeker.config.md.example` | optional `board_scan_title_include` / `_exclude` |
+
+## Checklist
+- [x] adapters verified against live payloads: GH, Lever, Ashby, Workable, Workday, Rippling, Aurora jobs-index, SmartRecruiters, Recruitee, Pinpoint. Breezy/Teamtailor unverified → reported `unsupported`.
+- [x] board-scan.mjs written; live run: 129/131 endpoints OK, ~14.5k postings, ~160 candidates, ~10s
+- [x] filter bugs found on live data and fixed + pinned by tests: over-stemming (management→manager, engineer→engine), other-family "<X> Manager" titles, "N/A"/region-only locations dropped, "New York, NY" read as a state
+- [x] reposts of APPLICATIONS are flagged, never dropped (AGENT-RULES §6); leads flagged too
+- [x] `test:board-scan` (84 checks, no network) + all CI suites green; wired into CI (mac + windows)
+- [x] role-scout step 1i, AGENT-RULES, curate playbook, docs/boards.md, scheduled-run allowlists (sh + ps1)
+
+## Open / next
+- Quizlet board 404s (`quizlet-2` slug moved) → re-run discover-board. Starship (Teamtailor) unsupported.
+- `scripts/hn-hiring.mjs` is NOT in the scheduled-run allowlists (pre-existing gap, not fixed here).
+- Next search-focus items (docs/career-ops-gap-analysis.md): S2 dealbreaker gate, S3 legitimacy flag (scan now supplies `posted_at`), S4 two-pass scoring, S5 adjacent titles → `board_scan_title_include`.
+
+---
+
 # HANDOFF — demand-signal sourcing ("signals") — RETIRED 2026-08-24
 
 **This feature was reversed the same day it shipped.** The separate `signal-scout` agent,

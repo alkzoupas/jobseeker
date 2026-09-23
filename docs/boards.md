@@ -70,6 +70,37 @@ reported the gap instead of closing it.
   gone. `node scripts/check-urls.mjs` screens for these patterns automatically — run it before
   re-surfacing stored proposals.
 
+## JSON careers boards — `scripts/board-scan.mjs`, no account, fully mechanical
+
+Every board at `access: json` in `data/boards.md` is read by one script instead of one LLM fetch per
+board: ~130 boards and ~14,000 postings in about 10 seconds. Adapters follow each board's real
+payload. Greenhouse, Lever, Ashby, Workable, Recruitee and Pinpoint are listed in full. Workday and
+SmartRecruiters are searched once per role phrase, because their full lists run to thousands.
+Rippling is read from the page's embedded data, and Aurora from its own `/api/jobs-index`.
+Teamtailor and Breezy have no verified adapter and are reported as `unsupported`.
+```
+npm run board:scan                          # scan, write data/.board-scan.json, print summary
+node scripts/board-scan.mjs --json          # everything, incl. dropped samples and coverage
+node scripts/board-scan.mjs --company Stripe --dry-run
+node scripts/board-scan.mjs --since 30      # drop postings older than 30 days
+```
+Filters, and why each one is shaped the way it is:
+- **Title:** every word of a `criteria.md` role, in any order ("Manager, ML Engineering" matches
+  "Engineering Manager"). Only plurals and "-ing" are stemmed. A general stemmer folded
+  "management" into "manager" and passed IC roles like "…, Capacity Management". A title whose word
+  just before "Manager" names another job family ("Program", "Product", "Operations", "Sourcing")
+  is rejected unless that word is in the role itself. Extra phrases go in
+  `board_scan_title_include` / `_exclude` in `config/job-seeker.config.md`.
+- **Location:** a city inside a named metro (the Bay Area list covers the peninsula and South Bay),
+  or "Remote" plus a region ("Remote - US", "United States - Remote", "Remote (Austin, TX)").
+  Anything that names no place is **kept as unknown, never dropped**: "N/A", "2 Locations", or only
+  a region like "North America". Stripe writes "N/A", and a first version dropped a fraud-detection
+  EM role for it. "New York" and "Washington" are treated as cities, not states.
+- **Dedup:** same URL, same requisition id at the same company, or same company + title as an
+  existing proposal is dropped. The same title as an **application** is kept and flagged as a
+  possible repost (AGENT-RULES §6): a reposted role you were rejected for is exactly what you need
+  to see.
+
 ## HN "Who is hiring?" — `scripts/hn-hiring.mjs`, no account, fully mechanical
 
 Monthly thread, Algolia API (`hn.algolia.com/api/v1`), no key, no scraping. The script reads **every**
