@@ -90,6 +90,13 @@ async function main() {
   const apps = await fs.readdir(path.join(tmp, "data", "applications"));
   check("concurrent identical upserts create ONE record", apps.length === 1, `${apps.length} files`);
 
+  // 4b. A NEW proposal keeps its req_id. The create path once built the record field by field and
+  //     left req_id out, so the seen-requisition index never saw first-time proposals.
+  await rec("upsert-proposal", JSON.stringify({ company: "Globex", role: "Engineering Manager", job_url: "https://x/1", req_id: "R4185", status: "proposed" }));
+  const props = await fs.readdir(path.join(tmp, "data", "proposals"));
+  const propText = props.length ? await fs.readFile(path.join(tmp, "data", "proposals", props[0]), "utf8") : "";
+  check("a newly created proposal keeps its req_id", /^req_id: R4185$/m.test(propText));
+
   // 5. No temp files left behind by the atomic-write path.
   const strays = (await fs.readdir(path.join(tmp, "data"))).filter((f) => f.endsWith(".tmp"));
   check("no .tmp files left behind", strays.length === 0, strays.join(", "));

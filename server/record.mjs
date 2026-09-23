@@ -441,6 +441,10 @@ async function upsertProposal(input) {
     market: input.market || "",
     source: input.source || "",
     job_url: input.job_url || "",
+    // The requisition id feeds list-keys' seen_req_ids, the check that stops a reworded repost from
+    // coming back as "new". The create path used to omit it, so every first-time proposal was saved
+    // without one unless the scout made a second update call.
+    req_id: input.req_id || "",
     // "verified" is ONLY "yes" when the posting link was OPENED and its title+location confirmed.
     verified: input.verified || "no",
     // "url_volatile":"yes" → the job_url uses a short-lived/rotating token (e.g. Check Point joborderid)
