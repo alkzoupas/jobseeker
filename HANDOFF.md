@@ -32,7 +32,10 @@ Source: `docs/career-ops-gap-analysis.md` item S1.
 - DONE 2026-09-23: S5 `/jobseeker titles` (`.claude/jobseeker/titles.md`) + `board-scan --title-vocab` / `--try-titles` (research-only, writes nothing); accepted phrases go to config `board_scan_title_include` behind a confirm gate. Fixed OTHER_FAMILY not being stemmed ("marketing"→"market" never matched). test:board-scan 96 checks.
 - DONE 2026-09-23: dismissal-patterns now protects criteria MARKETS as well as roles ("machine learning" had become a do-not-propose term). test:dismissals.
 - Applied (config, gitignored): board_scan_title_include = Tech Lead Manager, Director of Engineering, Director of Trust and Safety, Head of Engineering; exclude Executive Assistant → scan candidates 161 → 217. Director titles are above criteria `seniority` (Manager, Senior Manager) by the user's explicit choice.
-- Next: run `/jobseeker curate` so role-scout scores the new candidates with §A–C; S6 reverse discovery only if the tracked list proves the bottleneck.
+- DONE 2026-09-23 (later): infra/platform ML ruled out (criteria notes = applied ML only; dealbreaker; 15 infra title excludes in config; NOT Observability/Training/Reliability, which hit real roles). Hermes/Qwen experiment removed (repo + paused ~/.hermes job, backup in ~/.hermes/backups/). Merged upstream v0.7.12 (0 behind, pushed to origin/local). board-scan timeout 20s→60s (Anduril).
+- Curate ran twice 2026-09-23: 15 live proposals (top: Anthropic [DH] EM AI Observability 0.86, Zoox Model Evaluation 0.77, May Mobility Director Perf Analytics 0.70). User reviewing on the dashboard.
+- Open: Rula EM AI/ML is half ML-platform (user to keep/dismiss). Meta EM ML (recsys, ~0.62) not proposed pending user call. Uber needs a hand-typed search; Spec/Denim block Chrome; TikTok page 1 only. hn-hiring.mjs not in scheduled-run allowlists. A failed board read still bumps last_verified (Etsy).
+- Next: S6 reverse discovery only if the tracked list proves the bottleneck.
 
 ---
 
