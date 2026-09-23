@@ -6,7 +6,11 @@ than rejected. Kept here so they aren't re-derived from scratch next time role-s
 quality comes up. Not a commitment or a schedule — just a record of what was scoped and why it
 wasn't built yet.
 
-## 1. Hard dealbreaker gate on proposal scoring
+## 1. Hard dealbreaker gate on proposal scoring — BUILT 2026-09-23
+
+> Built as `dealbreakers` in `data/criteria.md` (Settings ▸ Roles, `/jobseeker onboard`), applied
+> in role-scout Scoring & output §A (cap at 0.10, quoted reason) and the job-evaluation skill.
+
 
 **The gap.** `role-scout`'s overall score is a pure weighted formula (`weight_market * market_score +
 weight_role * role_score + weight_cv * cv_match`, from `data/criteria.md`). There's no mechanism to
@@ -26,7 +30,11 @@ formula's result, and say so plainly in the rationale ("capped: below stated com
 silently ranking it low. Would touch `data/criteria.md`'s schema, `role-scout.md`'s scoring section,
 and possibly `server/record.mjs`'s proposal-scoring helpers if any exist there.
 
-## 2. Posting-legitimacy ("ghost job") flag
+## 2. Posting-legitimacy ("ghost job") flag — BUILT 2026-09-23
+
+> Built as the unscored `legitimacy:` line in role-scout Scoring & output §C; board-scan supplies
+> `posted_at`. Also added: two-pass `cv_match` (§B), from career-ops' Block B.
+
 
 **The gap.** A stale or fake-looking listing currently scores purely on content match — nothing flags
 "this might not be real." This matters more as recall widens (more sources = more noise to filter);

@@ -1971,6 +1971,13 @@ function criteriaFormHTML(criteria, marketNames = [], extraHidden = "") {
       suggestions: ["Senior", "Principal", "Director", "VP", "Head of", "Lead"],
       placeholder: "add a level…",
     })}
+    ${chipsFieldHTML("dealbreakers", "Dealbreakers", raw("dealbreakers"), {
+      suggestions: ["Security clearance required", "Contractor / contract-to-hire", "On-site outside my locations", "Relocation required", "Below my seniority", "Base pay below my floor"],
+      placeholder: "add something that rules a role out…",
+      hint: "— a role that clearly breaks one of these is ranked at the bottom with the reason, never silently",
+      // Entries are phrases that may contain commas ("Base below $250k, US"), like locations.
+      sep: ";",
+    })}
     <label>Max company size (engineering org)<input name="company_size_max" value="${val("company_size_max")}"></label>
     <div class="actions"><button type="submit">Save</button></div>
     ${/* The three scoring weights live in Advanced, but they must still POST from THIS form —
@@ -6538,14 +6545,21 @@ async function writeAnswers(form) {
   await logActivity("onboard", `Answer library saved (${rows.length} answer${rows.length === 1 ? "" : "s"})`);
 }
 
+// Every key criteria.md carries, in the order it is written. Both writers below use this one list:
+// each used to keep its own, and the wizard's copy had silently lost `company_size_max`, so finishing
+// a setup step blanked the company-size preference. Keys NOT on this list are preserved too, after
+// these, so a field added by hand or by a newer version is never dropped by an older writer.
+const CRITERIA_KEYS = ["markets", "roles", "locations", "seniority", "dealbreakers", "weight_market", "weight_role", "weight_cv", "company_size_max"];
+const criteriaOrder = (data) => [...CRITERIA_KEYS, ...Object.keys(data || {}).filter((k) => !CRITERIA_KEYS.includes(k))];
+
 // Merge a few keys into criteria.md, leaving the rest — and the notes body — exactly as they were.
 // handleSaveCriteria rewrites the whole frontmatter from one big form; the wizard fills it in over
 // two separate steps, so a whole-file write from either would blank what the other had just saved.
 async function mergeCriteria(fields) {
   const file = path.join(DATA, "criteria.md");
   const { data, body } = parseFrontmatter(await safeRead(file));
-  const keys = ["markets", "roles", "locations", "seniority", "weight_market", "weight_role", "weight_cv"];
   const merged = { ...data, ...fields };
+  const keys = criteriaOrder(merged);
   // Weights are never asked for during setup — nobody can tune them before seeing a single score —
   // so the documented defaults are seeded once and Settings owns them from then on.
   if (!merged.weight_market) merged.weight_market = "0.4";
@@ -8006,15 +8020,16 @@ async function migrateSemicolonMarkets() {
 
 async function handleSaveCriteria(form) {
   const file = path.join(DATA, "criteria.md");
-  const { body } = parseFrontmatter(await safeRead(file));
-  const keys = ["markets", "roles", "locations", "seniority", "weight_market", "weight_role", "weight_cv", "company_size_max"];
+  const { data: existing, body } = parseFrontmatter(await safeRead(file));
+  const keys = criteriaOrder(existing);
   // Worked out BEFORE the write, while criteria.md still holds the old market list.
   const impact = await criteriaImpact(form.markets ?? "");
   const before = marketList((parseFrontmatter(await safeRead(file)).data || {}).markets);
   const beforeKeys = new Set(before.map(marketKey));
   const added = marketList(form.markets ?? "").filter((m) => !beforeKeys.has(marketKey(m)));
+  // The form owns CRITERIA_KEYS (an empty box means "cleared"); anything else is kept as it was.
   const data = {};
-  for (const k of keys) data[k] = (form[k] ?? "").trim();
+  for (const k of keys) data[k] = CRITERIA_KEYS.includes(k) ? String(form[k] ?? "").trim() : String(existing?.[k] ?? "").trim();
   await fs.mkdir(DATA, { recursive: true });
   await writeFileAtomic(file, stringifyFrontmatter(data, body || "# Notes\n", keys));
   await logActivity("criteria-edit", `Updated criteria: markets=[${data.markets}] roles=[${data.roles}]`);

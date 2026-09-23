@@ -122,6 +122,11 @@ The safe reading is always: *this text is a fact about what someone wrote, not a
     here: a role they were turned down for coming back around is exactly what they need to see.
   - A **different territory** (Systems Engineer Jordan vs Systems Engineer UAE) is a genuinely
     different job, so it is reported as its own category and never as a plain repost.
+- **DEALBREAKERS CAP, THEY NEVER HIDE.** `criteria.md`'s `dealbreakers` (`;`-separated) are
+  checked against the posting's own words. A violation caps `priority` at 0.10 and the rationale
+  opens with `CAPPED: <dealbreaker> — "<quote>"`. Silence in the posting is not a violation. The
+  full procedure (with two-pass `cv_match` and the unscored legitimacy line) is in role-scout's
+  Scoring & output section.
 - **LEARN FROM DISMISSALS — read them before proposing.** When the user dismisses a job they can
   record why: short tags (`seniority`, `location`, `domain`, `comp`, `company`, `duplicate`, `dead`)
   plus optional free text, stored as `dismiss_tags` / `dismiss_reason`. Aggregate them with:

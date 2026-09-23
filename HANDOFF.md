@@ -27,7 +27,9 @@ Source: `docs/career-ops-gap-analysis.md` item S1.
 ## Open / next
 - Quizlet board 404s (`quizlet-2` slug moved) → re-run discover-board. Starship (Teamtailor) unsupported.
 - `scripts/hn-hiring.mjs` is NOT in the scheduled-run allowlists (pre-existing gap, not fixed here).
-- Next search-focus items (docs/career-ops-gap-analysis.md): S2 dealbreaker gate, S3 legitimacy flag (scan now supplies `posted_at`), S4 two-pass scoring, S5 adjacent titles → `board_scan_title_include`.
+- DONE 2026-09-23 (follow-up commit): S2 dealbreaker gate (`dealbreakers` in criteria.md, Settings field, onboard; cap 0.10 + quote), S3 unscored legitimacy line, S4 two-pass `cv_match` — role-scout Scoring & output §A–C + job-evaluation skill. Fixed wizard `mergeCriteria` blanking `company_size_max`; both criteria writers now preserve unknown keys (test-welcome 73 ok).
+- Prompt changes (§A–C) are NOT yet exercised by a live curate run — check the first run's rationales for `CAPPED:` / `legitimacy:` lines.
+- Next: S5 adjacent titles → `board_scan_title_include`; S6 reverse discovery only if the tracked list proves the bottleneck.
 
 ---
 

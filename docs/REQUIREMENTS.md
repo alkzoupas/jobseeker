@@ -52,6 +52,15 @@ search, and tells you the few things that need you today.**
 - **FR-2.5** Periodically discover companies that aren't in the careers-board registry at all yet
   (not just re-checking known ones), via a bounded `WebSearch` sweep against known ATS hosts, on
   manual/thorough curation runs — self-registering any genuine hit into the board registry.
+- **FR-2.6** Read every `json` board in the registry mechanically on each curation run (no LLM),
+  filter by the target roles/locations, and pass only unseen candidates to scoring
+  (`scripts/board-scan.mjs`).
+- **FR-2.7** A role that breaks a user-stated **dealbreaker** (per the posting's own words) is capped
+  to the bottom of the ranking with the quoted reason. It is never hidden, and a strong CV match
+  can never outrank it.
+- **FR-2.8** Requirement importance is judged from the posting before the CV is read, so the match
+  score cannot inflate itself. Posting legitimacy (freshness, reposting, specificity, contract
+  status) is reported alongside the score, never folded into it.
 
 ### FR-3 — Deduplication
 - **FR-3.1** Never re-propose a role already applied to or dismissed.

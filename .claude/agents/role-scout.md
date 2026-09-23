@@ -383,9 +383,57 @@ Longer explanations still go in `docs/boards.md`, not into this prompt — that 
 searchable without every scout run carrying all of it.
 
 ## Scoring & output
-For each matching opening, compute:
+
+**A. Dealbreaker gate (run first). It caps a role, it never hides one.** Read `dealbreakers` from
+`data/criteria.md` (`;`-separated, may be empty). Two more always apply: a posting that is explicitly
+on-site outside `locations` with no remote option, and a citizenship requirement the user does not
+meet (the eligibility gate in `.claude/skills/job-evaluation/SKILL.md`).
+- **Violated only on posting evidence.** Quote the posting's own words. A dealbreaker the posting is
+  silent on is NOT violated. A pay floor is violated only when a stated range's TOP is below it.
+- **Violated →** still write the proposal, with `priority` capped at **0.10** whatever the formula
+  says. Start the rationale with `CAPPED: <dealbreaker> — "<quote>"`. The user may know something
+  you don't, so it stays visible at the bottom instead of disappearing. A high `cv_match` must never
+  lift it back up. That silent override is exactly what this gate exists to stop.
+- **Unclear →** no cap. If the dealbreaker is one postings usually state (pay, clearance, contract
+  type), add `unverified: <dealbreaker>` to the rationale so the user knows it wasn't checked.
+
+**B. `cv_match` in two passes. Importance comes from the posting, never from the CV.**
+1. **Posting only, before looking at `data/profile.md`:** list the posting's significant
+   requirements (at most 8). Give each an importance of `critical`, `high`, `meaningful` or
+   `preferred`, plus the evidence for it:
+   - `stated`: the posting's own must-have wording, or the requirement is in the title.
+   - `structural`: where it sits (Requirements vs Nice-to-have) or how often it repeats.
+   - `inferred`: your market knowledge. **An inferred requirement can never be `critical`.**
+2. **Then** mark each one `met` / `partial` / `missing` against the profile, with the profile line
+   that backs each `met`.
+3. `cv_match` = Σ(weight × credit) / Σ(weight). Weights: critical 3, high 2, meaningful 1,
+   preferred 0.5. Credit: met 1, partial 0.5, missing 0. **Any `critical` marked missing caps
+   `cv_match` at 0.5.** Name the most important missing requirement in the rationale.
+
+Why this order matters: rating importance after reading the CV anchors the model toward
+"important = what they have", which inflates every match. Doing it posting-first is what makes
+`cv_match` honest.
+
+**C. Legitimacy, reported but NOT scored.** End every rationale with one line:
+`legitimacy: high | caution | suspicious (<signals>)`. The signals, in order:
+- **Freshness:** `posted_at` / age from the board scan or the page, and whether the apply button is
+  live or redirects to a generic careers page.
+- **Reposting:** a `repost_of` or `seen_req_ids` hit, or the same title seen again under a new
+  req id. Say how many times.
+- **Specificity:** does it name the team, scope, stack and a req id? Is it mostly boilerplate? Does
+  it contradict itself (title vs years required)? Does it state pay?
+- **Hiring health:** a layoff or hiring freeze in the same org. Use at most ONE `WebSearch`, and
+  only for proposals with `priority` ≥ 0.5.
+- **Contract status:** "invoice", "consultant", "1099" or "independent contractor" wording **plus**
+  no benefits language. Flag it separately even when legitimacy is `high`. Also check it against a
+  contractor dealbreaker in gate A.
+
+These are observations, not accusations: every signal has an innocent explanation, and the user
+decides. Never change `priority` because of legitimacy.
+
+**D. Compute** for each opening that reached this point:
    - `role_fit` (0–1): how well the posting matches the target roles/seniority.
-   - `cv_match` (0–1): overlap of the posting's requirements with `data/profile.md` skills/domains.
+   - `cv_match` (0–1): from B above.
    - `company_rank`: derive from the vendor's `tier` (tier 1 → 1.0, tier 2 → 0.7, tier 3 → 0.4).
    - `priority` = `company_rank * (weight_role*role_fit + weight_cv*cv_match)` using the criteria
      weights (normalize weights if they don't sum to 1). Round to 2 decimals.

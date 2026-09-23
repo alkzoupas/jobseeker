@@ -40,6 +40,28 @@ check against the candidate's status (U.S. citizen per answers.md).
 
 Report any FAIL to the user with the exact posting text — they may have context you don't.
 
+## Dealbreaker Gate — run before scoring
+
+Read `dealbreakers` from `data/criteria.md` (`;`-separated). A dealbreaker is **violated only on
+posting evidence**: quote the posting's words. Silence is not a violation, and a pay floor is broken
+only when the stated range's top is below it. A violated dealbreaker makes the recommendation
+**SKIP (dealbreaker)** whatever the composite score, with the quote shown. A strong match never
+overrides it. The user can still choose to go ahead. This is the same gate role-scout applies when
+it caps a proposal at 0.10.
+
+## Requirements — two passes, before any score
+
+1. **From the posting alone, before reading the profile or CV:** list up to 8 significant
+   requirements. Give each an importance (`critical` / `high` / `meaningful` / `preferred`) and its
+   evidence: `stated` (the posting's own must-have wording, quoted), `structural` (which section it
+   sits in, or how often it repeats) or `inferred` (market knowledge; **never `critical`**).
+2. **Then** mark each `met` / `partial` / `missing` against the profile/CV, citing the line.
+
+Importance is fixed in pass 1 and never revised in pass 2. Rating it after reading the CV pulls
+"important" toward "what the candidate has", which is how evaluations come out flattering. The
+Technical Skills and Experience scores below must agree with this table. A `critical` + `missing`
+row belongs in **Gaps (honest)**, stated plainly.
+
 ## Scoring Dimensions
 
 ### 1. Technical Skills Match (0-100)
@@ -155,6 +177,12 @@ Present the evaluation as a structured scorecard:
 ### Gates
 - Eligibility: PASS/FAIL (reason)
 - Location: PASS/FAIL (reason)
+- Dealbreakers: PASS / VIOLATED ("quote") / unverified: <which>
+
+### Requirements
+| Requirement | Importance (evidence) | Match | Posting signal / CV evidence |
+|---|---|---|---|
+| ... | critical (stated) | met / partial / missing | "quote" / CV line |
 
 ### Scores
 | Dimension | Score | Notes |
@@ -174,7 +202,12 @@ Present the evaluation as a structured scorecard:
 
 ### Recommendation
 STRONG FIT / GOOD FIT / PROCEED WITH CAVEATS / SKIP (with reasoning)
+
+legitimacy: high | caution | suspicious (signals: freshness, repost, specificity, contract status)
 ```
+
+The legitimacy line uses role-scout's signal list (`.claude/agents/role-scout.md`, Scoring & output
+§C). It informs the user and never changes the composite score.
 
 Composite score: weight each dimension equally (20% each) unless `data/criteria.md` specifies
 custom weights for the detailed evaluation.

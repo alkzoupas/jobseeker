@@ -19,6 +19,10 @@ rather than interrogating, and skip anything I've clearly already set.
 - **Target roles** (e.g. Product Management, Solution Architect) — comma list.
 - **Locations** (e.g. Dubai/UAE, Remote) — comma list.
 - **Seniority** (e.g. Senior, Principal, Director).
+- **Dealbreakers**: things that rule a role out however good the match is (e.g. security clearance
+  required, contractor role, relocation required, base below $X). `;`-separated, because an entry
+  may contain a comma. Optional; say that a role breaking one is ranked last with the reason shown,
+  not hidden.
 - Ranking weights — offer the defaults (market 0.4 / role 0.35 / CV 0.25) and only change if I ask.
 
 **Application answers** (→ `templates/answers.md`; reused when filling forms):
@@ -57,6 +61,7 @@ markets: <csv>
 roles: <csv>
 locations: <csv>
 seniority: <csv>
+dealbreakers: <;-separated, may be empty>
 weight_market: 0.4
 weight_role: 0.35
 weight_cv: 0.25

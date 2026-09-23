@@ -204,6 +204,36 @@ async function main() {
   check(/locations: Dubai, UAE$/m.test(await read("data/criteria.md")), "one location typed into an empty field stays one location");
   await post("/welcome-step", { step: "locations", action: "next", locations: "Dubai, UAE; Remote" });
   check(/weight_market: 0.4/.test(crit), "scoring weights are seeded, not asked for");
+
+  // A wizard step used to rewrite criteria.md from its own short key list, which had lost
+  // company_size_max — so finishing a setup step blanked the company-size preference. Keys it does
+  // not know about at all must survive too.
+  {
+    const file = path.join(sandbox, "data", "criteria.md");
+    const before = await read("data/criteria.md");
+    // Set in place (the file already carries empty lines for both keys) plus one unknown key.
+    const seeded = before
+      .replace(/^company_size_max:.*$/m, "company_size_max: 1000")
+      .replace(/^dealbreakers:.*$/m, "dealbreakers: Security clearance required; Contractor")
+      .replace(/^---\n/, "---\nfuture_key: keep me\n");
+    await fs.writeFile(file, seeded);
+    await post("/welcome-step", { step: "seniority", action: "next", seniority: "Senior" });
+    const after = await read("data/criteria.md");
+    check(
+      /company_size_max: 1000/.test(after) && /dealbreakers: Security clearance required; Contractor/.test(after) && /future_key: keep me/.test(after),
+      "a wizard step keeps company_size_max, dealbreakers and unknown keys"
+    );
+    // The Settings form owns dealbreakers: a submitted value is saved, and a key it does not render
+    // is still left alone.
+    await post("/save-criteria", {
+      markets: "Cybersecurity, Fintech", roles: "Solution Architect", locations: "Dubai, UAE; Remote",
+      seniority: "Senior", dealbreakers: "Relocation required; Base below $200k, US",
+      weight_market: "0.4", weight_role: "0.35", weight_cv: "0.25", company_size_max: "500",
+    });
+    const saved = await read("data/criteria.md");
+    check(/dealbreakers: Relocation required; Base below \$200k, US$/m.test(saved), "Settings saves dealbreakers verbatim");
+    check(/company_size_max: 500/.test(saved) && /future_key: keep me/.test(saved), "Settings keeps keys it does not render");
+  }
   const marketFiles = await fs.readdir(path.join(sandbox, "data", "markets"));
   check(marketFiles.length === 2, "a market file is created per market", marketFiles.join(", "));
 
