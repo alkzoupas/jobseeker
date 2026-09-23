@@ -401,6 +401,12 @@ Dead ends / blocked statelessly (don't re-spend a pass without Chrome):
 - **Google careers** — every legacy API path (`careers.google.com/api/v3|v2`,
   `/about/careers/applications/api/...`) is **404**; the `/jobs/results` page is JS-rendered and WebFetch
   truncates before the listings. Browser-only.
+  **SUPERSEDED 2026-09-22:** a plain `curl -A "Mozilla/5.0"` of
+  `https://www.google.com/about/careers/applications/jobs/results?q=<query>&page=<n>` (optionally
+  `&company=DeepMind`) returns the full server-rendered HTML (~1.3 MB, 20 results/page). Regex the
+  `jobs/results/<id>-<slug>` links; titles are in `<h3>`. Posting pages
+  (`.../jobs/results/<id>-<slug>`) are also stateless-readable, with the location after `place` and the
+  requirements after `Minimum qualifications`. WebFetch still truncates the page, so use curl. Google is `html` now, not `browser`.
 - **Akamai** — `akamai.com/careers` **403s curl**; the `akamaicareers.inflightcloud.com` API also 403s.
 - **Thales** — Phenom-backed; `careers.thalesgroup.com/api/jobs` returns **HTTP 500** for every
   parameter shape tried. Needs the Phenom `/widgets` POST or a browser.
