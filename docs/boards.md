@@ -160,6 +160,19 @@ picks up, so it only returns the preferences sidebar). Expect a meaningful fract
 already be tracked companies, and expect most to be role-scout's normal territory (a live opening with
 no distinctive domain angle) rather than a rare find — that's a legitimate outcome, not a sign
 something went wrong.
+**Observed 2026-09-23:** `/en/jobs-matches` now redirects to the home dashboard. The feeds are
+the home tiles instead ("All your matches" -> `/jobs`, "Jobs added this week" -> `/jobs?theme=newly-added`).
+Each one is a one-card-at-a-time carousel of about 11 cards, ending at `/jobs/batch-end`. Two traps:
+(a) a card's `/jobs/<id>` URL returns **404 when opened directly** outside the feed, so you can't
+walk back to a card later; read each card while it is on screen. (b) The tab title lags and then
+stops updating after a few rapid "next" clicks, so don't read cards from the tab title. After each
+click, wait about 2s and zoom the card header. The first unlabelled "next" button that `find`
+returns can be the **Apply** control, which opens an Apply modal. Close it and use the right-arrow
+chevron at the card edge instead.
+
+**Wellfound (same session), observed 2026-09-23:** the user is logged in. The public role/location
+listing `wellfound.com/role/l/engineering-manager/san-francisco` works. `/role/r/...` 404s, and
+`/role/l/engineering-manager/remote` redirects to `/role/engineering-manager`.
 Since the account is confirmed, **this source should be checked every Chrome-driving pass, same as
 DreamWorkHQ** — do not skip it on an "only if the user has an account" assumption. (The
 account-creation prohibition below is now moot for this user, but stays as standing guidance for
