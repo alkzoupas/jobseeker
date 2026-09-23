@@ -67,7 +67,10 @@ const ROOT = path.resolve(__dirname, "..");
 const DATA = path.join(ROOT, "data");
 const OUT = path.join(DATA, ".board-scan.json");
 
-const TIMEOUT_MS = 20_000;
+// Generous on purpose: boards are fetched in parallel, so only a slow board waits. Greenhouse takes
+// ~23s to serve Anduril's 2.5 MB board (≈2,000 postings), and a 20s limit silently dropped it from
+// every scan as a "timeout".
+const TIMEOUT_MS = 60_000;
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 const STALE_FLAG_DAYS = 60;
