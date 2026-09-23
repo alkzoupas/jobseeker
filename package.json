@@ -51,6 +51,7 @@
     "test:runstate": "node scripts/test-run-state.mjs",
     "test:update": "node scripts/test-update.mjs",
     "test:board-scan": "node scripts/test-board-scan.mjs",
+    "test:dismissals": "node scripts/test-dismissals.mjs",
     "browser:install-agent": "bash scripts/install-browser-agent.sh",
     "setup": "node scripts/run.mjs setup",
     "app": "bash scripts/build-app.sh",

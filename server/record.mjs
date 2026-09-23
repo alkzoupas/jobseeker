@@ -709,7 +709,7 @@ const TITLE_NOISE = new Set([
 // Turn a set of rejected titles into the terms worth avoiding: single words and adjacent pairs that
 // survive the noise list. Pairs matter — "red" and "team" separately are meaningless, "red team" is
 // the whole signal.
-function titleTerms(titles, protectedWords = new Set()) {
+export function titleTerms(titles, protectedWords = new Set()) {
   const single = {};
   const pair = {};
   for (const t of titles) {
@@ -753,18 +753,28 @@ function titleTerms(titles, protectedWords = new Set()) {
   return [...pairs, ...singles].filter(safe).slice(0, 25);
 }
 
+// Words that may never become avoid-terms: the user's own target ROLES **and MARKETS**. Markets were
+// missing at first, so a run of "not my domain" dismissals of ML-flavoured titles put "machine
+// learning" on the do-not-propose list — while Machine Learning was one of the four target markets.
+// role-scout was then told never to propose ML roles, and the board scan flagged every one of them.
+export function protectedTermWords(criteria = {}) {
+  return new Set(
+    [criteria.roles, criteria.markets]
+      .map((v) => String(v || ""))
+      .join(" ")
+      .toLowerCase()
+      .replace(/[^a-z0-9+ ]+/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+  );
+}
+
 async function dismissalPatterns() {
-  // The user's own target roles are off-limits as avoid-terms — see titleTerms().
+  // The user's own target roles and markets are off-limits as avoid-terms — see protectedTermWords().
   let protectedWords = new Set();
   try {
     const { data } = parseFrontmatter(await fs.readFile(path.join(DATA, "criteria.md"), "utf8"));
-    protectedWords = new Set(
-      String(data.roles || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9+ ]+/g, " ")
-        .split(/\s+/)
-        .filter((w) => w.length > 2)
-    );
+    protectedWords = protectedTermWords(data || {});
   } catch {
     /* no criteria yet — nothing to protect */
   }

@@ -65,9 +65,11 @@ You are **role-scout**. You turn the prioritized company lists into concrete, ra
   - It never mines `location` dismissals for title terms. Those roles were rejected for *where they
     were*; the title was fine. Avoiding "threat intelligence" because one sat in the wrong city
     would suppress exactly the roles they want.
-  - It never includes a word from the user's own target roles in `data/criteria.md`. Two rejected
-    "Product Manager" reqs must not put "product" on an avoid list when Product Management is what
-    they are looking for.
+  - It never includes a word from the user's own target roles **or markets** in `data/criteria.md`.
+    Two rejected "Product Manager" reqs must not put "product" on an avoid list when Product
+    Management is what they are looking for. Nor may ML-flavoured dismissals put "machine learning"
+    there when Machine Learning is a target market, which is exactly what happened before markets
+    were protected.
 
   Company-level: if a company is on `repeatedly_dismissed_companies`, proposing another of theirs
   needs a reason stated in the rationale. An untagged dismissal means they were in a hurry, not that
