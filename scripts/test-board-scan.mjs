@@ -13,7 +13,7 @@
 
 import {
   stem, phraseInTitle, titleFilter, locationFilter, ADAPTERS, adapterFor, readBoard,
-  makeDeduper, possiblyClosed, workdayPosted, ageDays,
+  makeDeduper, possiblyClosed, workdayPosted, ageDays, titleShape, titleVocab, tryTitles,
 } from "./board-scan.mjs";
 
 let failures = 0;
@@ -39,6 +39,9 @@ check("Product Manager, X Engineering rejected", !tf("Product Manager, Financial
 check("intern excluded by default", !tf("Engineering Manager Intern").ok);
 check("config exclude applies", !tf("Legal Engineering Manager").ok);
 check("'Manager, Software Engineering' kept", tf("Manager, Software Engineering (Payments)").ok);
+check("marketing is caught after stemming (Product Marketing Manager ≠ T&S Manager)", !titleFilter({ include: ["Trust and Safety Manager"] })("Sr. Product Marketing Manager, Trust & Safety").ok);
+check("a real T&S Manager still matches", titleFilter({ include: ["Trust and Safety Manager"] })("Manager, Trust & Safety").ok);
+check("T&S OPERATIONS Manager is another family unless asked for", !titleFilter({ include: ["Trust and Safety Manager"] })("Trust & Safety Operations Manager").ok);
 check("Program Manager as a TARGET still works", titleFilter({ include: ["Program Manager"] })("Technical Program Manager").ok);
 
 // ---- location ----
@@ -210,6 +213,29 @@ check("missing live proposal on a full board is reported", pc.some((x) => x.id =
 check("present by URL is not reported", !pc.some((x) => x.id === "p1"));
 check("search-based (partial) boards are never used", !pc.some((x) => x.id === "p3"));
 check("dismissed proposals are ignored", !pc.some((x) => x.id === "p4"));
+
+// ---- title research ----
+console.log("title research");
+check("shape drops level + specialisation", titleShape("Senior Engineering Manager, Payments") === "engineering manager");
+check("shape keeps the job when the lead segment is only a head noun", titleShape("Manager II, Engineering - Connections") === "manager, engineering");
+check("shape keeps 'Chief of Staff' intact", titleShape("Chief of Staff, Co-CEO") === "chief of staff");
+check("shape drops bracketed text", titleShape("Director of Engineering (Remote)") === "director of engineering");
+const vrows = [
+  { company: "A", title: "Director of Engineering, Data" },
+  { company: "B", title: "Senior Director of Engineering" },
+  { company: "C", title: "Product Marketing Manager" },
+  { company: "D", title: "Software Engineer" },
+];
+const voc = titleVocab(vrows, { related: ["Engineering Manager"] });
+check("vocab: related shapes share a non-head role word", voc.related[0]?.shape === "director of engineering" && voc.related[0].companies === 2);
+check("vocab: unrelated leadership titles go to `other`", voc.other.some((o) => o.shape === "product marketing manager"));
+check("vocab: titles with no head noun are ignored", ![...voc.related, ...voc.other].some((o) => o.shape === "software engineer"));
+const tt = tryTitles(
+  [{ company: "A", title: "Tech Lead Manager, Cards" }, { company: "B", title: "Engineering Program Manager" }, { company: "C", title: "Tech Lead Manager Intern" }],
+  ["Tech Lead Manager", "Engineering Manager"]
+);
+check("try-titles counts what the phrase would add", tt[0].new_postings === 1 && tt[0].samples[0].startsWith("A —"));
+check("try-titles applies the real filter rules (family + default excludes)", tt[1].new_postings === 0);
 
 check("ageDays", ageDays("2026-09-20", now) === 3 && ageDays("", now) === null);
 

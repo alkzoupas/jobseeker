@@ -432,7 +432,9 @@ These are observations, not accusations: every signal has an innocent explanatio
 decides. Never change `priority` because of legitimacy.
 
 **D. Compute** for each opening that reached this point:
-   - `role_fit` (0–1): how well the posting matches the target roles/seniority.
+   - `role_fit` (0–1): how well the posting matches the target roles/seniority. Phrases in
+     `board_scan_title_include` (config) are titles the user **accepted as equivalents** of their
+     roles via `/jobseeker titles`. Score them as target titles, not as near misses.
    - `cv_match` (0–1): from B above.
    - `company_rank`: derive from the vendor's `tier` (tier 1 → 1.0, tier 2 → 0.7, tier 3 → 0.4).
    - `priority` = `company_rank * (weight_role*role_fit + weight_cv*cv_match)` using the criteria

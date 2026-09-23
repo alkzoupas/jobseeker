@@ -279,6 +279,7 @@ The subcommands:
 |---|---|
 | `/jobseeker job-run` | The full daily routine — the one the scheduler runs |
 | `/jobseeker curate` | Find and score new roles |
+| `/jobseeker titles` | Suggest other titles your target role goes by, show how many live postings each would add, and add only the ones you accept |
 | `/jobseeker track` | Update the tracker from Gmail, Calendar, WhatsApp and LinkedIn |
 | `/jobseeker apply <id>` | Prepare an application — **pauses for your approval before submitting** |
 | `/jobseeker followup` | Draft a follow-up — **pauses for your approval before sending** |

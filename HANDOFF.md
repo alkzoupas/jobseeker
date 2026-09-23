@@ -29,7 +29,8 @@ Source: `docs/career-ops-gap-analysis.md` item S1.
 - `scripts/hn-hiring.mjs` is NOT in the scheduled-run allowlists (pre-existing gap, not fixed here).
 - DONE 2026-09-23 (follow-up commit): S2 dealbreaker gate (`dealbreakers` in criteria.md, Settings field, onboard; cap 0.10 + quote), S3 unscored legitimacy line, S4 two-pass `cv_match` — role-scout Scoring & output §A–C + job-evaluation skill. Fixed wizard `mergeCriteria` blanking `company_size_max`; both criteria writers now preserve unknown keys (test-welcome 73 ok).
 - Prompt changes (§A–C) are NOT yet exercised by a live curate run — check the first run's rationales for `CAPPED:` / `legitimacy:` lines.
-- Next: S5 adjacent titles → `board_scan_title_include`; S6 reverse discovery only if the tracked list proves the bottleneck.
+- DONE 2026-09-23: S5 `/jobseeker titles` (`.claude/jobseeker/titles.md`) + `board-scan --title-vocab` / `--try-titles` (research-only, writes nothing); accepted phrases go to config `board_scan_title_include` behind a confirm gate. Fixed OTHER_FAMILY not being stemmed ("marketing"→"market" never matched). test:board-scan 96 checks.
+- Next: S6 reverse discovery only if the tracked list proves the bottleneck.
 
 ---
 

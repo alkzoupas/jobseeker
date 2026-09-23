@@ -90,7 +90,9 @@ Filters, and why each one is shaped the way it is:
   "management" into "manager" and passed IC roles like "…, Capacity Management". A title whose word
   just before "Manager" names another job family ("Program", "Product", "Operations", "Sourcing")
   is rejected unless that word is in the role itself. Extra phrases go in
-  `board_scan_title_include` / `_exclude` in `config/job-seeker.config.md`.
+  `board_scan_title_include` / `_exclude` in `config/job-seeker.config.md`. `/jobseeker titles`
+  suggests these from the evidence (`--title-vocab`, `--try-titles`) and writes only the ones you
+  accept.
 - **Location:** a city inside a named metro (the Bay Area list covers the peninsula and South Bay),
   or "Remote" plus a region ("Remote - US", "United States - Remote", "Remote (Austin, TX)").
   Anything that names no place is **kept as unknown, never dropped**: "N/A", "2 Locations", or only

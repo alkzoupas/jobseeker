@@ -25,6 +25,7 @@ Natural request → what to run:
 |---|---|
 | "jobseeker, check my email / WhatsApp / LinkedIn / any updates" | `/jobseeker track` |
 | "find me roles" / "curate" | `/jobseeker curate [market]` |
+| "what other titles should I search" / "widen the search" | `/jobseeker titles` |
 | "research <market> vendors" | `/jobseeker markets <market>` |
 | "tailor my CV for <posting>" / "tailor" | `/tailor <id or url>` (evaluate fit → tailor CV + cover letter → reviewer pass) |
 | "apply to <proposal>" | `/jobseeker apply <id>` (interactive, approval-gated) |

@@ -30,6 +30,7 @@ their words filled in as arguments:
 |---|---|
 | email / calendar / WhatsApp / LinkedIn updates | `/jobseeker track` |
 | find roles to apply to | `/jobseeker curate [market]` |
+| what other job titles to search / widen the search | `/jobseeker titles` |
 | research / rank vendors for a market | `/jobseeker markets [add] <market>` |
 | draft & send a follow-up | `/jobseeker followup [who or id]` |
 | send one already-approved message | `/jobseeker send-approval <approval-id>` |

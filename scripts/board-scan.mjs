@@ -42,6 +42,12 @@
 //   node scripts/board-scan.mjs --company Discord   # one company (substring match)
 //   node scripts/board-scan.mjs --no-location       # skip the location filter
 //
+// Title research (for /jobseeker titles). Both read the boards the same way, write nothing:
+//   node scripts/board-scan.mjs --title-vocab       # title shapes employers use that the filter misses
+//   node scripts/board-scan.mjs --title-vocab --vocab-terms "trust, safety, machine learning"
+//   node scripts/board-scan.mjs --try-titles "Software Development Manager; Head of Engineering"
+//                                                   # how many NEW, in-scope postings each would add
+//
 // Optional tuning in config/job-seeker.config.md (gitignored), comma-separated:
 //   board_scan_title_include: Software Development Manager, Head of Trust and Safety
 //   board_scan_title_exclude: Program Manager, Product Manager
@@ -110,11 +116,15 @@ export const DEFAULT_EXCLUDES = ["intern", "internship", "co-op", "new grad", "a
 // Onboarding and Sourcing Managers "for Engineering". Only rejected when X sits directly before the
 // phrase's final word and is not itself part of the phrase — "Program Manager" as a target role
 // still works.
+// Written as ordinary words and stemmed here, so the list compares like with like: a first version
+// stored "marketing" while titles were stemmed to "market", and "Product Marketing Manager, Trust &
+// Safety" passed as a Trust & Safety Manager role.
 const OTHER_FAMILY = new Set([
-  "product", "program", "project", "account", "sale", "marketing", "operation", "onboard",
-  "sourc", "lab", "community", "office", "partner", "partnership", "success", "recruit", "talent",
-  "finance", "legal", "facility", "procurement", "portfolio", "release", "delivery", "vendor",
-]);
+  "product", "program", "project", "account", "sales", "marketing", "operations", "onboarding",
+  "sourcing", "lab", "community", "office", "partner", "partnerships", "success", "recruiting",
+  "recruiter", "talent", "finance", "legal", "facilities", "procurement", "portfolio", "release",
+  "delivery", "vendor", "assistant",
+].map(stem));
 function otherFamily(phrase, title) {
   const pw = titleWords(phrase).map(stem);
   const head = pw[pw.length - 1];
@@ -747,6 +757,78 @@ export function possiblyClosed(proposals, boardResults) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Title research — evidence for /jobseeker titles
+// ---------------------------------------------------------------------------------------------
+
+const LEVEL_WORDS = new Set([
+  "senior", "sr", "snr", "staff", "principal", "junior", "jr", "associate", "distinguished",
+  "i", "ii", "iii", "iv", "v", "1", "2", "3", "4", "5",
+]);
+const HEAD_WORDS = ["manager", "head", "director", "lead", "leader", "vp", "chief"];
+
+// The reusable core of a title, for counting how employers name a job: level words and the
+// specialisation after a comma or dash are dropped ("Senior Engineering Manager, Payments" →
+// "engineering manager"). When the part before the comma is ONLY a level + head noun ("Manager II,
+// Engineering - Connections"), the next segment is what names the job, so it is kept
+// ("manager, engineering").
+export function titleShape(title) {
+  const segs = String(title || "")
+    .toLowerCase()
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, " ")
+    .split(/,|\s[-–—|:]\s|\s\/\s/)
+    // A level word after "of" is part of a name, not a level ("Chief of Staff").
+    .map((seg) => seg.split(/\s+/).filter((w, i, a) => w && (a[i - 1] === "of" || (!LEVEL_WORDS.has(w.replace(/[^a-z0-9]/g, "")) && !/^l\d$/.test(w)))).join(" ").trim())
+    .filter(Boolean);
+  if (!segs.length) return "";
+  if (HEAD_WORDS.includes(segs[0]) && segs[1]) return `${segs[0]}, ${segs[1]}`;
+  return segs[0];
+}
+
+// The most common shapes among `rows` ({company, title}) that contain a head noun — i.e. how the
+// market names the leadership jobs the filter is currently missing.
+//
+// `related` terms (the non-head words of the target roles, plus any the caller adds, e.g. the CV's
+// domains) split the result: `related` shapes share one of them and are the likely adjacent titles;
+// `other` is everything else, kept short, because the market's biggest leadership families
+// (Product, Marketing, Finance) would otherwise bury the handful that matter.
+export function titleVocab(rows, { heads = HEAD_WORDS, related = [], limit = 40 } = {}) {
+  const headStems = new Set(heads.map(stem));
+  const relStems = new Set(related.flatMap((t) => titleWords(t)).map(stem).filter((w) => !headStems.has(w)));
+  const by = new Map();
+  for (const r of rows) {
+    const shape = titleShape(r.title);
+    if (!shape || !titleWords(shape).map(stem).some((w) => headStems.has(w))) continue;
+    const e = by.get(shape) || { shape, count: 0, companies: new Set(), examples: [] };
+    e.count++;
+    e.companies.add(r.company);
+    if (e.examples.length < 3) e.examples.push(`${r.company} — ${r.title}`);
+    by.set(shape, e);
+  }
+  const all = [...by.values()]
+    .sort((a, b) => b.companies.size - a.companies.size || b.count - a.count)
+    .map((e) => ({ shape: e.shape, postings: e.count, companies: e.companies.size, examples: e.examples }));
+  const isRel = (e) => titleWords(e.shape).map(stem).some((w) => relStems.has(w));
+  return { related: all.filter(isRel).slice(0, limit), other: all.filter((e) => !isRel(e)).slice(0, 15) };
+}
+
+// For each candidate phrase: how many of `rows` (postings the CURRENT filter misses, already
+// location- and dedup-filtered) it would let through, with samples. Same matching rules as the real
+// filter — including the other-family rule and the excludes — so the number is what adding it
+// would actually do.
+export function tryTitles(rows, phrases, { exclude = [] } = {}) {
+  return phrases.map((phrase) => {
+    const ok = titleFilter({ include: [phrase], exclude });
+    const hits = rows.filter((r) => ok(r.title).ok);
+    return {
+      phrase,
+      new_postings: hits.length,
+      companies: [...new Set(hits.map((h) => h.company))].length,
+      samples: hits.slice(0, 8).map((h) => `${h.company} — ${h.title}${h.location ? ` (${h.location})` : ""}`),
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------------------------
 
@@ -792,6 +874,9 @@ async function main() {
   const SINCE = flag("since") ? Number(flag("since")) : null;
   const ONLY = flag("company");
   const CONC = Math.max(1, Math.min(16, Number(flag("concurrency", 8)) || 8));
+  const TRY = list(String(flag("try-titles", "") || "").replace(/;/g, ","));
+  const VOCAB = has("title-vocab");
+  const RESEARCH = VOCAB || TRY.length > 0;
 
   setCompanyAliases(await companyAliases());
   const cfg = await loadConfig();
@@ -826,7 +911,10 @@ async function main() {
   }
   const unique = [...byEndpoint.values()];
 
-  const results = await pool(unique, CONC, async (b) => ({ company: b.company, companies: b.companies, endpoint: b.endpoint, ...(await readBoard(b, include)) }));
+  // Search-based boards (Workday, SmartRecruiters) only return what was searched for, so trial
+  // phrases are searched too — otherwise --try-titles would under-count exactly those boards.
+  const searchPhrases = [...include, ...TRY.filter((t) => !include.includes(t))];
+  const results = await pool(unique, CONC, async (b) => ({ company: b.company, companies: b.companies, endpoint: b.endpoint, ...(await readBoard(b, searchPhrases)) }));
 
   const titleOk = titleFilter({ include, exclude });
   const locOk = locationFilter(locations);
@@ -841,6 +929,9 @@ async function main() {
   const droppedSamples = { location: [], title_near_miss: [] };
   const seenReasons = {};
   const candidates = [];
+  // Research modes only: postings the title filter rejected but that are in scope on location and
+  // not already seen — the pool a new title phrase could actually add to.
+  const misses = [];
   let postingsSeen = 0;
   for (const r of results) {
     if (r.state !== "ok") continue;
@@ -848,6 +939,10 @@ async function main() {
     for (const p of r.postings) {
       postingsSeen++;
       const t = titleOk(p.title);
+      if (!t.ok && RESEARCH) {
+        const l = locOk(p);
+        if (l.verdict !== "no" && !dedup(company, p).drop) misses.push({ company, title: p.title, location: p.locations.join("; ") });
+      }
       if (!t.ok) {
         dropped.title++;
         if ((t.near || t.why.startsWith("excluded")) && include.some((ph) => phraseInTitle(ph, p.title)) && droppedSamples.title_near_miss.length < 60) {
@@ -900,6 +995,35 @@ async function main() {
   candidates.sort((a, b) => a.flags.length - b.flags.length || (a.age_days ?? 9999) - (b.age_days ?? 9999));
 
   const ok = results.filter((r) => r.state === "ok");
+  if (RESEARCH) {
+    const research = {
+      generated_at: now.toISOString(),
+      current_title_filter: include,
+      current_matches: candidates.length,
+      boards_read: ok.length,
+      in_scope_misses: misses.length,
+      ...(VOCAB ? { title_vocab: titleVocab(misses, { related: [...include, ...list(String(flag("vocab-terms", "") || "").replace(/;/g, ","))] }) } : {}),
+      ...(TRY.length ? { try_titles: tryTitles(misses, TRY, { exclude }) } : {}),
+      note: "Research only: nothing written. Titles are employer-written text (AGENT-RULES §0).",
+    };
+    if (AS_JSON) {
+      console.log(JSON.stringify(research, null, 2));
+    } else {
+      console.log(`# title research — ${ok.length} boards, ${candidates.length} postings match the current filter, ${misses.length} in-scope postings it misses`);
+      const line = (v) => console.log(`${String(v.companies).padStart(3)} co · ${String(v.postings).padStart(3)} posts  ${v.shape}   e.g. ${v.examples[0]}`);
+      if (research.title_vocab) {
+        console.log("\n## related to your roles");
+        research.title_vocab.related.forEach(line);
+        console.log("\n## other leadership titles in scope (top 15)");
+        research.title_vocab.other.forEach(line);
+      }
+      for (const t of research.try_titles || []) {
+        console.log(`\n"${t.phrase}": +${t.new_postings} new postings at ${t.companies} companies`);
+        for (const x of t.samples) console.log(`  ${x}`);
+      }
+    }
+    return;
+  }
   const coverage = {
     boards_listed: boards.length,
     endpoints: unique.length,
