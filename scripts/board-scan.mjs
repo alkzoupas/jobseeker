@@ -212,7 +212,9 @@ const METRO_REGION = { "san francisco bay area": "us", "bay area": "us", "sf bay
 
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const wordIn = (needle, hay) => new RegExp(`(^|[^a-z])${esc(needle)}([^a-z]|$)`).test(hay);
-const lower = (s) => String(s || "").toLowerCase().replace(/\./g, " ").replace(/\s+/g, " ").trim();
+// Underscores too: some boards (Hover) send slugs like "san_francisco", which a first version
+// dropped as "not in the Bay Area".
+const lower = (s) => String(s || "").toLowerCase().replace(/[._]/g, " ").replace(/\s+/g, " ").trim();
 
 const REMOTE_RE = /\bremote\b|\bwork from home\b|\bwfh\b|\bdistributed\b|\banywhere\b/;
 const MULTI_RE = /^\d+\s+locations?$/i;

@@ -240,6 +240,8 @@ check("try-titles applies the real filter rules (family + default excludes)", tt
 
 check("ageDays", ageDays("2026-09-20", now) === 3 && ageDays("", now) === null);
 
+check("slug-style location (\"san_francisco\") matches the Bay Area", locationFilter(["San Francisco Bay Area", "Remote US"])({ locations: ["san_francisco"] }).verdict === "match");
+
 console.log("board-sweep notes");
 const human = "Eightfold API is 403 to scripts; use the /careers UI.";
 const v1 = keepNotes(human, "2026-09-24 board-sweep: READ IN CHROME");
