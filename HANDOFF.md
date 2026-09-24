@@ -1,4 +1,35 @@
-# HANDOFF — zero-token board scan (`scripts/board-scan.mjs`) — DONE 2026-09-23
+# HANDOFF — triage step (bucketed verdicts per role) — IN PROGRESS 2026-09-24
+
+**Goal.** Replace "user pastes postings into a chat and judges them" with an in-project triage step:
+code hard filters, then an LLM verdict per proposal read from the FULL JD against the user's rubric.
+Verdict = Domain (Strong/Adjacent/Weak) + Structural (Pass/Fail + rubric rule) + flags + bucket
+(APPLY / LOOK CLOSER / SKIP) + reason + 0-100 sort score (ordering only). Never blended.
+Output table `output/triage_YYYY-MM-DD.md` + "Filtered out" list. Overrides feed back via
+`data/decisions.md`. Tailoring stays on request (`/tailor`). Never applies/contacts anyone.
+
+**Decisions (user, 2026-09-24):** keep project structure (data/ is source of truth, no criteria/
+folder); triage is a SEPARATE step after curate (own agent), not inside role-scout.
+
+## Inputs (user-authored, gitignored — never edit without showing the user first)
+- `data/fit-rubric.md` (structural rules 1-8, flags, buckets, sort score, hard filters)
+- `data/career-priorities.md`
+- `templates/cover/voice.md` (cover letter voice; tailoring only)
+- `templates/cv/trust_resume.tex` (updated 2026-09-24) — `data/profile.md` predates it
+- History: `data/applications/*.md`, dismissed proposals (`dismissal-patterns`), `data/decisions.md` (new)
+
+## Checklist
+- [x] 0. board-scan location bug: `san_francisco` slug dropped as out-of-area (cf98c76)
+- [x] 1. record.mjs: triage fields on proposals, `triage <id> <json>` (validated: Fail⇒SKIP), `override`, `list-triage`
+- [ ] 2. scripts/fetch-jd.mjs: full JD → data/.jd-cache/<id>.txt (ATS APIs, HTTP, browser-read fallback)
+- [ ] 3. scripts/triage.mjs: `hard-filter` (rubric binary rules → bucket FILTERED + rule) and `report` (table file)
+- [ ] 4. triage-agent + `.claude/jobseeker/triage.md` playbook + `/jobseeker triage` (ids | urls | pasted | backlog)
+- [ ] 5. job-run + digest wiring (buckets in New Job Postings); dashboard badge if cheap
+- [ ] 6. job-evaluation / tailor read career-priorities.md + voice.md; CLAUDE.md pointer; rubric path fixes (shown to user)
+- [ ] 7. run triage on the current backlog (17 proposed) and show the table
+
+---
+
+# PREVIOUS: HANDOFF — zero-token board scan (`scripts/board-scan.mjs`) — DONE 2026-09-23
 
 **Goal.** 136 of 186 boards in `data/boards.md` are `access: json`, but only role-scout read them,
 one at a time through the LLM, and step 2 only ran for tier-1 vendors. A mechanical scanner reads

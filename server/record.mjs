@@ -5,6 +5,9 @@
 // Usage:
 //   node server/record.mjs upsert-application '<json>'   -> dedup by company+role, merge status forward
 //   node server/record.mjs upsert-proposal   '<json>'   -> dedup by company+role
+//   node server/record.mjs triage <prop-id> '<json>'    -> record a triage verdict (validated, see validateTriage)
+//   node server/record.mjs override <prop-id> <BUCKET> <reason...> -> the user's call; logged to data/decisions.md
+//   node server/record.mjs list-triage [--untriaged] [--date d] [--status s] -> proposals + verdicts, bucket order
 //   node server/record.mjs add-communication '<json>'   -> dedup by thread_url
 //   node server/record.mjs add-contact       '<json>'   -> dedup by email (or name)
 //   node server/record.mjs add-task          '<json>'
@@ -131,6 +134,11 @@ const PROPOSAL_ORDER = [
   // Why the user rejected this. `dismiss_tags` is a short controlled vocabulary so the reasons can
   // actually be counted and learned from; `dismiss_reason` is their free text. Both optional.
   "dismiss_tags", "dismiss_reason",
+  // The triage verdict (data/fit-rubric.md). Two axes kept apart on purpose: a domain-strong role
+  // can still be structurally disqualified, and blending them into one number hid exactly that.
+  // `triage_score` only orders roles WITHIN a bucket. See validateTriage().
+  "triage_bucket", "triage_domain", "triage_structural", "triage_rule", "triage_flags",
+  "triage_score", "triage_reason", "triage_questions", "triage_date", "triage_override",
 ];
 
 // The reasons a role gets rejected, as pickable tags. Deliberately a SHORT closed list: free text
@@ -164,6 +172,120 @@ async function logActivity(type, detail) {
   const file = path.join(DATA, "activity.md");
   await ensureTable(file, "# Activity\n\n| timestamp | type | detail |\n|-----------|------|--------|\n");
   await appendTableRow(file, { timestamp: nowISO(), type, detail: sanitizeCell(detail) }, "top");
+}
+
+// ---- triage ----
+//
+// A verdict per proposal, judged from the full job description against data/fit-rubric.md. The
+// invariants live HERE rather than in the agent prompt, because a prompt can drift and this cannot:
+//   * Domain (Strong/Adjacent/Weak) and Structural (Pass/Fail) are separate fields, never merged.
+//   * A structural Fail names the rubric rule it broke, and is always SKIP whatever the score.
+//   * FILTERED is set by code for the rubric's binary hard filters (scripts/triage.mjs), with the rule.
+//   * The score is 0-100 and only orders roles inside a bucket.
+export const TRIAGE_BUCKETS = ["APPLY", "LOOK CLOSER", "SKIP", "FILTERED"];
+const TRIAGE_DOMAINS = ["Strong", "Adjacent", "Weak"];
+const titleCase = (v) => String(v || "").trim().toLowerCase().replace(/^./, (c) => c.toUpperCase());
+const listCell = (v) => (Array.isArray(v) ? v : String(v || "").split(/\s*;\s*/)).map((x) => String(x).trim()).filter(Boolean).join("; ");
+
+export function validateTriage(t) {
+  t = t || {};
+  const bucket = String(t.bucket || "").trim().toUpperCase().replace(/_/g, " ");
+  if (!TRIAGE_BUCKETS.includes(bucket)) throw new Error(`triage: bucket must be one of ${TRIAGE_BUCKETS.join(" / ")}, got "${t.bucket}"`);
+  const rule = String(t.rule || "").trim();
+  const reason = String(t.reason || "").trim();
+  if (!reason) throw new Error("triage: a one-sentence reason is required");
+  if (bucket === "FILTERED") {
+    if (!rule) throw new Error("triage: FILTERED must name the hard-filter rule that triggered");
+    return {
+      triage_bucket: bucket, triage_domain: "", triage_structural: "", triage_rule: rule,
+      triage_flags: "", triage_score: "", triage_reason: reason, triage_questions: "",
+    };
+  }
+  const domain = titleCase(t.domain);
+  if (!TRIAGE_DOMAINS.includes(domain)) throw new Error(`triage: domain must be Strong / Adjacent / Weak, got "${t.domain}"`);
+  const structural = titleCase(t.structural);
+  if (structural !== "Pass" && structural !== "Fail") throw new Error(`triage: structural must be Pass or Fail, got "${t.structural}"`);
+  if (structural === "Fail" && !rule) throw new Error("triage: a structural Fail must cite the rubric rule it broke");
+  if (structural === "Fail" && bucket !== "SKIP") throw new Error(`triage: a structural Fail is always SKIP, got ${bucket}`);
+  const score = Number(t.score);
+  if (!Number.isInteger(score) || score < 0 || score > 100) throw new Error(`triage: score must be an integer 0-100, got "${t.score}"`);
+  return {
+    triage_bucket: bucket, triage_domain: domain, triage_structural: structural,
+    triage_rule: structural === "Fail" ? rule : "", triage_flags: listCell(t.flags),
+    triage_score: String(score), triage_reason: reason, triage_questions: listCell(t.questions),
+  };
+}
+
+async function findProposal(id) {
+  if (!id) throw new Error("A proposal id is required");
+  const dir = path.join(DATA, "proposals");
+  const rec = (await readRecordDir(dir)).find((r) => r.data.id === id);
+  if (!rec) throw new Error(`No proposal ${id}`);
+  return { dir, rec };
+}
+
+async function triageProposal(id, input) {
+  const fields = validateTriage(input);
+  const { dir, rec } = await findProposal(id);
+  // The user's override is the ground truth; a re-run of the model must not quietly undo it.
+  if (String(rec.data.triage_override || "").trim()) {
+    return { action: "kept-override", id, bucket: rec.data.triage_bucket, override: rec.data.triage_override };
+  }
+  // Written directly rather than through upsert-proposal: its stripEmpty() would keep a stale
+  // domain/score when a role is re-judged as FILTERED, and those blanks are the point.
+  const data = { ...rec.data, ...fields, triage_date: today() };
+  await writeFileAtomic(path.join(dir, rec.file), stringifyFrontmatter(data, rec.body, PROPOSAL_ORDER));
+  await logActivity("triage", `${data.company} — ${data.role}: ${fields.triage_bucket}${fields.triage_rule ? ` (${fields.triage_rule})` : ""}`);
+  return { action: "triaged", id, bucket: fields.triage_bucket };
+}
+
+const DECISIONS_HEADER =
+  "# Triage decisions\n\nThe user's overrides of triage verdicts. triage-agent reads these before every run as\n" +
+  "examples of the user's judgment. Written by `record.mjs override`; do not hand-edit.\n\n" +
+  "| date | proposal | company | role | from | to | reason |\n|------|----------|---------|------|------|----|--------|\n";
+
+async function overrideTriage(id, bucketRaw, reason) {
+  const bucket = String(bucketRaw || "").trim().toUpperCase().replace(/_/g, " ");
+  if (!["APPLY", "LOOK CLOSER", "SKIP"].includes(bucket)) throw new Error(`override: bucket must be APPLY / LOOK CLOSER / SKIP, got "${bucketRaw}"`);
+  if (!String(reason || "").trim()) throw new Error("override: a reason is required. It is what teaches the next triage run");
+  const { dir, rec } = await findProposal(id);
+  const from = rec.data.triage_bucket || "untriaged";
+  const data = {
+    ...rec.data,
+    triage_bucket: bucket,
+    triage_override: `${today()} ${from} -> ${bucket}: ${String(reason).trim()}`,
+  };
+  await writeFileAtomic(path.join(dir, rec.file), stringifyFrontmatter(data, rec.body, PROPOSAL_ORDER));
+  const file = path.join(DATA, "decisions.md");
+  await ensureTable(file, DECISIONS_HEADER);
+  await appendTableRow(file, {
+    date: today(), proposal: id, company: rec.data.company, role: rec.data.role,
+    from, to: bucket, reason: String(reason).trim(),
+  });
+  await logActivity("triage-override", `${rec.data.company} — ${rec.data.role}: ${from} → ${bucket} (${reason})`);
+  return { action: "overridden", id, from, to: bucket };
+}
+
+async function listTriage({ untriaged = false, date = null, status = "proposed" } = {}) {
+  const records = await readRecordDir(path.join(DATA, "proposals"));
+  let rows = records.map((r) => r.data).filter((d) => d && d.id);
+  if (status && status !== "any") rows = rows.filter((d) => String(d.status || "proposed") === status);
+  if (untriaged) rows = rows.filter((d) => !d.triage_bucket);
+  if (date) rows = rows.filter((d) => String(d.triage_date || "") === String(date).slice(0, 10));
+  const order = (b) => { const i = TRIAGE_BUCKETS.indexOf(b); return i < 0 ? TRIAGE_BUCKETS.length : i; };
+  rows.sort((a, b) => order(a.triage_bucket) - order(b.triage_bucket) || Number(b.triage_score || 0) - Number(a.triage_score || 0) || Number(b.priority || 0) - Number(a.priority || 0));
+  return {
+    count: rows.length,
+    proposals: rows.map((d) => ({
+      id: d.id, company: d.company || "", role: d.role || "", location: d.location || "",
+      market: d.market || "", found_date: d.found_date || "", priority: Number(d.priority || 0),
+      job_url: d.job_url || "",
+      bucket: d.triage_bucket || "", domain: d.triage_domain || "", structural: d.triage_structural || "",
+      rule: d.triage_rule || "", flags: d.triage_flags || "", score: d.triage_score === "" || d.triage_score == null ? null : Number(d.triage_score),
+      reason: d.triage_reason || "", questions: d.triage_questions || "", triage_date: d.triage_date || "",
+      override: d.triage_override || "",
+    })),
+  };
 }
 
 // ---- commands ----
@@ -1297,6 +1419,23 @@ async function dispatch(cmd, rest) {
     case "upsert-proposal":
       result = await upsertProposal(parseArg(rest[0]));
       break;
+    case "triage":
+      result = await triageProposal(rest[0], parseArg(rest[1]));
+      break;
+    case "override": {
+      // "LOOK CLOSER" is two words, and people type it unquoted.
+      const two = /^look$/i.test(rest[1] || "") && /^closer$/i.test(rest[2] || "");
+      result = await overrideTriage(rest[0], two ? "LOOK CLOSER" : rest[1], rest.slice(two ? 3 : 2).join(" "));
+      break;
+    }
+    case "list-triage": {
+      const flag = (name, dflt = null) => {
+        const i = rest.indexOf(name);
+        return i >= 0 && rest[i + 1] ? rest[i + 1] : dflt;
+      };
+      result = await listTriage({ untriaged: rest.includes("--untriaged"), date: flag("--date"), status: flag("--status", "proposed") });
+      break;
+    }
     case "supersede-lead":
       result = await supersedeLead(rest[0], rest[1], rest.slice(2).join(" ").trim() || undefined);
       break;
