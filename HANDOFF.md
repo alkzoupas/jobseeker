@@ -28,12 +28,16 @@ folder); triage is a SEPARATE step after curate (own agent), not inside role-sco
 - [x] 7. first run on the backlog: 17 JDs fetched, 1 FILTERED (Google Sr Director, H1), 16 judged: 0 APPLY / 10 LOOK CLOSER / 6 SKIP → output/triage_2026-09-24.md
 
 ## Open
-- User to review the table and give overrides (`/jobseeker triage #N <BUCKET> <reason>`).
+- 2026-09-24 (later): rubric updated by the user (rule 5 = core ML infra only, mixed = flag; NA time zones, travel, pay not flags;
+  ops/policy roles flagged not filtered; eval roles Adjacent; empty company no-go list). Re-triaged: 3 APPLY (Anthropic, Fetch, Zoox),
+  7 LOOK CLOSER, 6 SKIP, 1 FILTERED → output/triage_2026-09-24.md (+ .json row map). profile.md refreshed from trust_resume.tex;
+  anchor stories moved to templates/cover/anchor-stories.md (gitignored) and cover_master.tex restored.
+- NEXT (user, 2026-09-25): review the 16 roles and give overrides. Resolve "#N" against output/triage_2026-09-24.json,
+  NOT a newer triage file, if they refer to this table.
+- Open rubric questions: Roblox on the no-go list? company boilerplate vs rule 7 (Suno)? non-ML eng roles; clearance/defense.
 - Rubric gaps the judges named (user's call, show exact edits first): time-zone requirements, travel, company no-go list (Roblox),
   T&S ops/policy directorships, evaluation roles (rubric Adjacent vs repeated dismissals), mixed infra/applied mandates, pay floor, non-ML eng roles.
-- fit-rubric.md says `decisions_log.md` → should say data/applications + data/decisions.md (proposed to user, not applied).
-- voice.md says anchor stories live in the cover template, but templates/cover/cover_master.tex is a placeholder: no anchor stories in the repo yet.
-- data/profile.md predates the 2026-09-24 trust_resume.tex update; refresh it.
+
 
 ---
 
