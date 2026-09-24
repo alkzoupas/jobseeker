@@ -16,6 +16,7 @@ import { fileURLToPath } from "url";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { validateTriage } from "../server/record.mjs";
+import { titleFilter, locationHardFilter, hardFilter, renderReport } from "./triage.mjs";
 import { apiPlan, fromApi, htmlToText, jsonLdJobPosting, linkedinDescription, closedSignal, fetchJd, THIN_CHARS } from "./fetch-jd.mjs";
 
 const run = promisify(execFile);
@@ -148,7 +149,45 @@ async function jd() {
   check("with --browser, a JS-rendered page is read through Chrome", r.via === "browser" && asked && r.text.length >= THIN_CHARS);
 }
 
+function hard() {
+  console.log("\ntriage hard filters + report");
+  const rule = (t) => titleFilter(t)?.rule || null;
+  check("Senior Director is H1", rule("Senior Director Engineering, YouTube Trust and Safety") === "H1 level");
+  check("VP / SVP / CTO / Chief … Officer are H1", ["VP of Engineering", "SVP, Trust", "CTO", "Chief Technology Officer"].every((t) => rule(t) === "H1 level"));
+  check("plain Director is NOT filtered (the judge decides)", rule("Director, Trust & Safety") === null && rule("Director of Engineering") === null);
+  check("Head of Engineering is NOT filtered (org size is a judgement)", rule("Head of Engineering") === null);
+  check("Product Manager is H2 even with ML in the title", rule("Senior Product Manager, Machine Learning") === "H2 function");
+  check("Engineering Manager, Product is NOT H2", rule("Engineering Manager, Product Integrity") === null);
+  check("sales / solutions engineering is H2", rule("Director of Solutions Engineering") === "H2 function" && rule("Sales Engineering Manager") === "H2 function");
+  check("an engineering role for marketing is NOT H2", rule("Engineering Manager, Marketing Technology") === null);
+  check("Recruiter / Legal Counsel are H2", rule("Technical Recruiter") === "H2 function" && rule("Legal Counsel, Trust") === "H2 function");
+  check("the target title passes", rule("Engineering Manager, Trust & Safety") === null);
+  const locs = ["San Francisco Bay Area", "Remote US"];
+  check("Pittsburgh on-site is H3", locationHardFilter("Pittsburgh, PA", locs)?.rule === "H3 location");
+  check("one in-scope place among several passes", locationHardFilter("San Francisco, CA; New York, NY", locs) === null);
+  check("Mountain View passes (commute is a flag, not a filter)", locationHardFilter("Mountain View, CA (On-site)", locs) === null);
+  check("US remote passes", locationHardFilter("United States (Remote)", locs) === null);
+  check("an empty location is never filtered", locationHardFilter("", locs) === null);
+  check("a closed posting is H0 before anything else", hardFilter({ role: "Engineering Manager" }, { jd: { closed: "yes" } })?.rule === "H0 closed");
+
+  const rows = [
+    { id: "p1", company: "A", role: "EM", bucket: "SKIP", domain: "Strong", structural: "Fail", rule: "8 5-day office", score: 90, reason: "Office 5 days.", job_url: "https://a" },
+    { id: "p2", company: "B", role: "EM", bucket: "APPLY", domain: "Strong", structural: "Pass", score: 70, reason: "Core T&S.", flags: "commute", job_url: "https://b", questions: "How hands-on?" },
+    { id: "p3", company: "C|D", role: "EM", bucket: "APPLY", domain: "Adjacent", structural: "Pass", score: 85, reason: "Eval.", job_url: "" },
+    { id: "p4", company: "E", role: "VP Eng", bucket: "FILTERED", rule: "H1 level", reason: "VP.", location: "SF" },
+  ];
+  const { markdown, map } = renderReport({ date: "2026-09-24", rows, scan: { generated_at: "2026-09-24T01:00:00Z", counts: { dropped: { location: 5 } }, dropped_samples: { location: [{ company: "X", title: "EM", why: "outside" }], title_near_miss: [] } } });
+  check("rows numbered APPLY first, by score, SKIP last", map[1] === "p3" && map[2] === "p2" && map[3] === "p1", JSON.stringify(map));
+  check("FILTERED rows are not numbered in the table", !Object.values(map).includes("p4"));
+  check("a structural Fail shows its rule", markdown.includes("| Fail (8 5-day office) |"));
+  check("pipes in cells are escaped", markdown.includes("C\\|D"));
+  check("Filtered out lists the rule", /E — VP Eng \(SF\) · \*\*H1 level\*\*/.test(markdown));
+  check("board-scan drops are listed for false-negative review", markdown.includes("Location drops (1 of 5)"));
+  check("early questions are carried for non-SKIP rows", markdown.includes("**#2 B:** How hands-on?"));
+}
+
 await cli();
 await jd();
+hard();
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);
