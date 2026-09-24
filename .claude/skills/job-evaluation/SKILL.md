@@ -13,6 +13,13 @@ tailoring a CV or cover letter — the scores and analysis inform what to emphas
 Read these before scoring:
 - `data/profile.md` — parsed CV with skills, experience, achievements
 - `data/criteria.md` — target markets, roles, locations, seniority, weights
+- `data/fit-rubric.md` — the user's rubric: target level, structural rules, weighted flags. **Its
+  structural rules are gates:** a posting that breaks one (quote it, cite the rule number) gets the
+  recommendation **SKIP (structural: rule N)** whatever the scores, same as a dealbreaker
+- `data/career-priorities.md` — what energizes and drains the user, the hours constraint, the
+  hands-on (a)/(b) distinction. **The source for dimensions 3 and 5 below**
+- The proposal's triage verdict, if it has one (`triage_*` fields in `data/proposals/<id>.md`), and
+  the cached full JD at `data/.jd-cache/<id>.txt` (`node scripts/fetch-jd.mjs <id>` if missing)
 - `templates/cv/trust_resume.tex` — master CV (the authoritative source for all claims)
 - The job posting (URL fetched via WebFetch, or pasted text)
 
@@ -117,13 +124,9 @@ Does the role and company culture match the candidate's leadership style and pre
 | 40-59 | Some friction areas |
 | 0-39 | Significant culture mismatch |
 
-**Thrives in:** Mission-driven orgs where safety/integrity is central to the product (not a cost
-center), technical leadership that stays close to the work, environments that value mentorship and
-growing people, teams with strong engineering culture and low bureaucracy
-
-**Red flags to investigate:** Safety/integrity treated as compliance checkbox, heavy process/politics
-over shipping, no path to stay technical while leading, org instability or recent layoffs in the
-function
+Judge against `data/career-priorities.md` (energizes / drains / constraints) and the hands-on (a)
+vs (b) distinction there. Posting wording that implies long hours or production-coding-as-the-job
+is a culture risk for this user even when everything else fits: name it.
 
 ### 4. Seniority & Scope Match (0-100)
 
@@ -136,12 +139,8 @@ Does the level and scope align with career trajectory?
 | 40-59 | Significant level mismatch (too junior or too senior) |
 | 0-39 | Wrong level entirely |
 
-**Target:** Senior Manager / Director level, managing managers or large IC teams (7-20+), owning a
-function or org. Willing to step to EM for the right role (did this at LinkedIn intentionally).
-
-**Too junior:** Individual contributor, first-time manager roles
-**Too senior:** VP/C-level roles requiring 15+ years of pure management (candidate values staying
-technical)
+**Target:** the level in `data/fit-rubric.md` (Candidate snapshot). Its structural rule on
+scope/layering decides "too senior"; its level-mismatch flag covers the near misses.
 
 ### 5. Career Alignment & Motivation (0-100)
 
@@ -154,18 +153,9 @@ Does this role advance career goals and contain tasks that energize?
 | 40-59 | Decent job but doesn't build toward career goals |
 | 0-39 | Dead end or backwards step |
 
-**Career goals:**
-- Continue building at the intersection of AI/ML and Trust & Safety
-- Grow toward VP/Director of Engineering at a company where safety is core to the product
-- Stay close enough to the technical work to build tools and shape architecture, not just manage
-- Work on problems with real stakes (not just engagement metrics)
-
-**Energizing tasks:** Building enforcement/detection systems, growing engineers into leaders,
-cross-functional strategy with product/legal/policy, rapid-response to new threats, agentic AI
-tooling
-
-**Draining tasks:** Pure process management, compliance paperwork, managing teams with no technical
-agency, politics-heavy environments
+Use `data/career-priorities.md`: what energizes the user, what drains them, and the constraints
+they will not trade. Score against those, not against a generic career ladder. Include the one or
+two early-conversation questions from that file that matter most for this role.
 
 ## Output Format
 
@@ -178,6 +168,7 @@ Present the evaluation as a structured scorecard:
 - Eligibility: PASS/FAIL (reason)
 - Location: PASS/FAIL (reason)
 - Dealbreakers: PASS / VIOLATED ("quote") / unverified: <which>
+- Structural (data/fit-rubric.md): PASS / FAIL (rule N, "quote")
 
 ### Requirements
 | Requirement | Importance (evidence) | Match | Posting signal / CV evidence |
@@ -202,6 +193,8 @@ Present the evaluation as a structured scorecard:
 
 ### Recommendation
 STRONG FIT / GOOD FIT / PROCEED WITH CAVEATS / SKIP (with reasoning)
+(If the proposal has a triage verdict and you disagree with it, say so and why. Don't change it:
+overrides are the user's, via `/jobseeker triage #N <BUCKET> <reason>`.)
 
 legitimacy: high | caution | suspicious (signals: freshness, repost, specificity, contract status)
 ```

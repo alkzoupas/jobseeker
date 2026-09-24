@@ -67,9 +67,10 @@ stated priority):
 
 ### 4. Writing Quality
 
-- Does the tone match the candidate's style? (Direct, technical, concrete, no buzzwords, no
-  "passionate about" or "excited to" fluff. See the Anthropic cover letter in the tailor command
-  for the reference voice.)
+- Does the cover letter follow `templates/cover/voice.md`, the candidate's own voice rules?
+  Check its banned phrases, its opening and closing rules, its structure, and **its attribution
+  rules** (what the candidate owned vs what their teams built). Treat an attribution violation as
+  a factual error, not a style note.
 - Is the cover letter specific to this role, or could it be sent to any company with a
   find-and-replace?
 - Are bullets achievement-oriented (outcome + number) rather than responsibility-oriented

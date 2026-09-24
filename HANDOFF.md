@@ -24,7 +24,7 @@ folder); triage is a SEPARATE step after curate (own agent), not inside role-sco
 - [x] 3. scripts/triage.mjs: `hard-filter` (rubric binary rules → bucket FILTERED + rule) and `report` (table file)
 - [x] 4. triage-agent + `.claude/jobseeker/triage.md` playbook + `/jobseeker triage` (ids | urls | pasted | backlog)
 - [x] 5. job-run + digest wiring (buckets in New Job Postings); dashboard badge if cheap
-- [ ] 6. job-evaluation / tailor read career-priorities.md + voice.md; CLAUDE.md pointer; rubric path fixes (shown to user)
+- [x] 6. job-evaluation / tailor read career-priorities.md + voice.md; CLAUDE.md pointer; rubric path fixes (shown to user)
 - [ ] 7. run triage on the current backlog (17 proposed) and show the table
 
 ---
