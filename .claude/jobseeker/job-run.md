@@ -265,7 +265,10 @@ holding. Three scheduled runs in a row printed their digest into a log nobody re
 1. **ALWAYS write the digest to `data/.last-digest.md` first**, before attempting any delivery. This
    is the durable copy; the dashboard surfaces it and it cannot be lost to a transport failure.
    Start the file with a delivery line: `delivered: whatsapp | not-delivered: <reason>`.
-2. **Then try WhatsApp** (`reply` to `whatsapp_owner_jid` from `config/job-seeker.config.md`).
+2. **Then try WhatsApp** (`reply` to `whatsapp_owner_jid` from `config/job-seeker.config.md`),
+   **unless the config says `digest_whatsapp: false`.** In that case skip WhatsApp entirely, write
+   `delivered: chat` as the delivery line, and leave out the WhatsApp-delivery System item. It is
+   the user's choice, not a failure.
    If the tool is not available, do **not** treat that as "no digest today" — record
    `not-delivered: whatsapp MCP tool unavailable this session` on the delivery line.
 3. **Never leave delivery failure buried in prose.** The status file and the log must both say it, so
@@ -289,7 +292,7 @@ tool**, so an "emailed digest" would sit unsent in Drafts. Verified, not assumed
   once reported its own status file as stuck because of exactly this.
 - If `previous_scheduled_run` shows the previous run ended in state `failed` or `partial`, say so at
   the top of the digest — a silently-failed run is the one thing I would otherwise never notice.
-- WhatsApp: send it with the `reply` tool to my owner chat (`whatsapp_owner_jid` from
+- WhatsApp (skip when `digest_whatsapp: false`): send it with the `reply` tool to my owner chat (`whatsapp_owner_jid` from
   `config/job-seeker.config.md`; if blank, use my most recent WhatsApp `unreplied` sender or skip
   WhatsApp gracefully).
 - Chat: print the same digest as your final message.

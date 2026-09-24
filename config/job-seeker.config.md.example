@@ -10,6 +10,10 @@ dashboard_port: 4319
 approval_channels: whatsapp, chat
 # Your paired WhatsApp owner JID (approvals are sent here). Leave blank to auto-detect the owner.
 whatsapp_owner_jid:
+# Send the job-run digest to WhatsApp? false = the digest stays in the chat and on the dashboard
+# (data/.last-digest.md) and is recorded as `delivered: chat`, so a WhatsApp-free setup is not
+# reported as a failed delivery on every run.
+digest_whatsapp: true
 
 # Where the apply agent PAUSES for your approval before continuing.
 # Comma list of checkpoints: each_section, file_upload, unknown_question, submit
