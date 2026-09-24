@@ -60,6 +60,18 @@ function record(args) {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// upsert-board REPLACES the notes cell, so writing only the sweep's verdict wiped whatever a scout or
+// the user had learned about the board (API quirks, where a careers page moved). Keep that, drop the
+// previous sweep verdict so they do not pile up run after run.
+export function keepNotes(prev, fresh) {
+  let human = String(prev || "").trim();
+  if (/^\d{4}-\d{2}-\d{2} board-sweep:/.test(human)) {
+    const i = human.indexOf(" | prev: ");
+    human = i >= 0 ? human.slice(i + " | prev: ".length).trim() : "";
+  }
+  return human ? `${fresh} | prev: ${human}` : fresh;
+}
 const slug = (s) =>
   String(s || "")
     .toLowerCase()
@@ -255,7 +267,7 @@ async function main() {
           company: b.company,
           access: "blocked",
           last_verified: stamp,
-          notes: `${stamp} board-sweep: failed in the browser too (${String(err || out?.error).slice(0, 160)}). Previously ${b.access}. Genuinely uncovered.`,
+          notes: keepNotes(b.notes, `${stamp} board-sweep: failed in the browser too (${String(err || out?.error).slice(0, 160)}). Previously ${b.access}. Genuinely uncovered.`),
         }),
       ]);
       continue;
@@ -270,7 +282,7 @@ async function main() {
           company: b.company,
           access: "blocked",
           last_verified: stamp,
-          notes: `${stamp} board-sweep: Chrome could not load ${b.url} — ${failed}. Fails to a script AND to a browser, so this is genuinely uncovered.`,
+          notes: keepNotes(b.notes, `${stamp} board-sweep: Chrome could not load ${b.url} — ${failed}. Fails to a script AND to a browser, so this is genuinely uncovered.`),
         }),
       ]);
       continue;
@@ -287,7 +299,7 @@ async function main() {
           company: b.company,
           access: "blocked",
           last_verified: stamp,
-          notes: `${stamp} board-sweep: opened at ${out.href} in Chrome and got only ${out.length} chars — no readable listing. Previously ${b.access}.`,
+          notes: keepNotes(b.notes, `${stamp} board-sweep: opened at ${out.href} in Chrome and got only ${out.length} chars — no readable listing. Previously ${b.access}.`),
         }),
       ]);
       continue;
@@ -304,7 +316,7 @@ async function main() {
           company: b.company,
           access: b.access === "blocked" ? "blocked" : "browser",
           last_verified: stamp,
-          notes: `${stamp} board-sweep: opened in Chrome and hit a ${wall} at ${out.href}. Board exists; still queued.`,
+          notes: keepNotes(b.notes, `${stamp} board-sweep: opened in Chrome and hit a ${wall} at ${out.href}. Board exists; still queued.`),
         }),
       ]);
       continue;
@@ -339,13 +351,15 @@ async function main() {
         access: "browser",
         endpoint: movedHost ? out.href : b.endpoint,
         last_verified: stamp,
-        notes:
+        notes: keepNotes(
+          b.notes,
           `${stamp} board-sweep: READ IN CHROME — ${out.length} chars cached at data/.board-cache/${slug(b.company)}.txt. ` +
           (sig.hasListings
             ? `${sig.titleLines} job-title-shaped lines, so openings look present.`
             : `LOOKS LIKE A LANDING PAGE — only ${sig.titleLines} job-title-shaped lines; openings are probably behind a click or a lazy load, so an empty cache here does NOT mean the company has no roles.`) +
           (movedHost ? ` MOVED: ${hostOf(b.url)} now redirects to ${hostOf(out.href)} — endpoint updated to ${out.href}.` : "") +
-          (landedElsewhere ? ` NOTE: redirected to ${out.href}; stored endpoint left unchanged.` : ""),
+          (landedElsewhere ? ` NOTE: redirected to ${out.href}; stored endpoint left unchanged.` : "")
+        ),
       }),
     ]);
   }

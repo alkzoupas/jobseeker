@@ -15,6 +15,7 @@ import {
   stem, phraseInTitle, titleFilter, locationFilter, ADAPTERS, adapterFor, readBoard,
   makeDeduper, possiblyClosed, workdayPosted, ageDays, titleShape, titleVocab, tryTitles,
 } from "./board-scan.mjs";
+import { keepNotes } from "./board-sweep.mjs";
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -238,6 +239,15 @@ check("try-titles counts what the phrase would add", tt[0].new_postings === 1 &&
 check("try-titles applies the real filter rules (family + default excludes)", tt[1].new_postings === 0);
 
 check("ageDays", ageDays("2026-09-20", now) === 3 && ageDays("", now) === null);
+
+console.log("board-sweep notes");
+const human = "Eightfold API is 403 to scripts; use the /careers UI.";
+const v1 = keepNotes(human, "2026-09-24 board-sweep: READ IN CHROME");
+check("sweep keeps a hand-written note", v1 === `2026-09-24 board-sweep: READ IN CHROME | prev: ${human}`);
+const v2 = keepNotes(v1, "2026-09-25 board-sweep: hit a login wall");
+check("next sweep replaces its own verdict, keeps the human note once", v2 === `2026-09-25 board-sweep: hit a login wall | prev: ${human}`);
+check("a sweep-only note does not pile up", keepNotes("2026-09-24 board-sweep: old", "2026-09-25 board-sweep: new") === "2026-09-25 board-sweep: new");
+check("empty notes stay just the verdict", keepNotes("", "x") === "x" && keepNotes(undefined, "x") === "x");
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);
