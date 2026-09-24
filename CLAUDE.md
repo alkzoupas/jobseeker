@@ -50,7 +50,7 @@ document. Agents read them; **never edit them without showing the user the exact
 | `data/career-priorities.md` | Triage and fit evaluation: what energizes/drains, the hours constraint, early questions |
 | `data/decisions.md` | The user's triage overrides (written only by `record.mjs override`), read as examples each run |
 | `templates/cv/trust_resume.tex` | The master CV: the only source of claims for tailoring |
-| `templates/cover/voice.md` + `cover_master.tex` | Cover-letter voice rules + anchor stories (tailoring, on request only) |
+| `templates/cover/voice.md` + `anchor-stories.md` | Cover-letter voice rules + reusable anchor stories (tailoring, on request only). `cover_master.tex` is only the LaTeX layout |
 
 Application history is `data/applications/*.md` plus dismissed proposals (`record.mjs dismissal-patterns`).
 Tailoring (`/tailor`) never runs as part of triage; only when the user asks.
