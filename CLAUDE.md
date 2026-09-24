@@ -25,6 +25,8 @@ Natural request → what to run:
 |---|---|
 | "jobseeker, check my email / WhatsApp / LinkedIn / any updates" | `/jobseeker track` |
 | "find me roles" / "curate" | `/jobseeker curate [market]` |
+| "triage these" / "which should I apply to" / pasted postings or links to judge | `/jobseeker triage [ids \| urls \| text]` |
+| "#4 should be SKIP, …" (override after a triage table) | `/jobseeker triage #4 SKIP <reason>` |
 | "what other titles should I search" / "widen the search" | `/jobseeker titles` |
 | "research <market> vendors" | `/jobseeker markets <market>` |
 | "tailor my CV for <posting>" / "tailor" | `/tailor <id or url>` (evaluate fit → tailor CV + cover letter → reviewer pass) |
@@ -36,6 +38,22 @@ Natural request → what to run:
 | "anything wrong with my tracker" / health check | `/jobseeker check` |
 | "what's my pipeline / status" | jobseeker agent → `server/audit.mjs` + summarize |
 | "add task …" (plain English) | jobseeker agent → `record.mjs add-task` (parse date/who/type, keep raw detail) |
+
+## Triage and tailoring inputs (source of truth)
+
+These user-written files are the source of truth for every triage verdict and every tailored
+document. Agents read them; **never edit them without showing the user the exact change first.**
+
+| File | Used for |
+|---|---|
+| `data/fit-rubric.md` | Triage: domain vs structural fit (numbered rules), flags, buckets, sort score, hard filters |
+| `data/career-priorities.md` | Triage and fit evaluation: what energizes/drains, the hours constraint, early questions |
+| `data/decisions.md` | The user's triage overrides (written only by `record.mjs override`), read as examples each run |
+| `templates/cv/trust_resume.tex` | The master CV: the only source of claims for tailoring |
+| `templates/cover/voice.md` + `cover_master.tex` | Cover-letter voice rules + anchor stories (tailoring, on request only) |
+
+Application history is `data/applications/*.md` plus dismissed proposals (`record.mjs dismissal-patterns`).
+Tailoring (`/tailor`) never runs as part of triage; only when the user asks.
 
 ## Hard rules (see AGENT-RULES.md for the full list)
 

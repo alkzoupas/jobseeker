@@ -1,5 +1,5 @@
 ---
-description: The one JobSeeker command — "/jobseeker <subcommand> [args]". markets, curate, titles, track, apply, apply-fill, followup, send-approval, reconcile, check, job-run, onboard, parse-cv. Each specialist runs on its own model. "/jobseeker" alone lists them and shows your pipeline.
+description: The one JobSeeker command — "/jobseeker <subcommand> [args]". markets, curate, triage, titles, track, apply, apply-fill, followup, send-approval, reconcile, check, job-run, onboard, parse-cv. Each specialist runs on its own model. "/jobseeker" alone lists them and shows your pipeline.
 argument-hint: "<subcommand> [args]"
 ---
 
@@ -16,6 +16,7 @@ arguments (call them *ARGS*, possibly empty).
 |---|---|---|
 | `markets` | `[add] [market name]` | Build or refresh the ranked vendor list per market (prioritization-agent, one per market) |
 | `curate` | `[market name]` | Find live openings at the prioritized companies and write ranked proposals (role-scout, one per market) |
+| `triage` | `[all \| ids \| urls \| pasted text \| #N <BUCKET> <reason>]` | Judge proposals from their full JD against your fit rubric: APPLY / LOOK CLOSER / SKIP table, plus overrides (triage-agent) |
 | `titles` | `[list \| remove <phrase>]` | Suggest adjacent job titles, measured against the live boards, and widen the board scan with the ones you accept |
 | `track` | | Update the tracker from Gmail, Calendar, WhatsApp Web and LinkedIn (inbox-tracker + chat-tracker) |
 | `apply` | `<proposal-id \| job-url>` | Apply to a proposal in Chrome, approval before submit (application-agent) |
@@ -42,7 +43,7 @@ This command exists so each specialist gets its own tier (AGENT-RULES §16). Tha
 work actually goes to the specialist:
 
 - When a playbook names an agent (`prioritization-agent`, `role-scout`, `inbox-tracker`,
-  `chat-tracker`, `reconciler`, `supervisor`, `comms-agent`, `application-agent`), **spawn it with the
+  `chat-tracker`, `reconciler`, `supervisor`, `comms-agent`, `application-agent`, `triage-agent`), **spawn it with the
   Agent tool**. Never read its agent file and do the work yourself in this context. That would run
   it on this session's model instead of its own.
 - **Do not pass `model`** when spawning. Each agent's frontmatter declares its tier. The one

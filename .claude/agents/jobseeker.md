@@ -30,6 +30,8 @@ their words filled in as arguments:
 |---|---|
 | email / calendar / WhatsApp / LinkedIn updates | `/jobseeker track` |
 | find roles to apply to | `/jobseeker curate [market]` |
+| judge / triage roles, "which of these should I apply to", pasted postings or links to assess | `/jobseeker triage [ids \| urls \| text]` |
+| "#4 should be SKIP …" (an override of a triage table) | `/jobseeker triage #4 SKIP <reason>` |
 | what other job titles to search / widen the search | `/jobseeker titles` |
 | research / rank vendors for a market | `/jobseeker markets [add] <market>` |
 | draft & send a follow-up | `/jobseeker followup [who or id]` |
