@@ -432,3 +432,29 @@ Dead ends / blocked statelessly (don't re-spend a pass without Chrome):
 - No Greenhouse board exists for: sophos, darktrace, tenable, proofpoint, cyera, rapid7, varonis, vectraai
   (all `{"status":404,"error":"Job not found"}`). Confirmed zero UAE/MEA reqs on the Greenhouse boards for
   **okta** (367 roles), **cloudflare** (277), **netskope** (128), **zscaler** (298), **torq** (24).
+
+## Browser-queue findings — 2026-09-23 evening Chrome pass
+
+- **Uber (`jobs.uber.com`)**: the keyword parameter is **`?search=`**, not `?query=` (which is
+  silently ignored, which is why earlier reads looked unfiltered). `/en/jobs/?search=fraud&radius=100`
+  filters correctly. The "Job removed" text on every card is the **save-heart toggle's label**, not a
+  closed-job marker, so don't read it as "all jobs removed". Location params guessed by hand
+  returned "No jobs found", so search without one.
+- **ServiceNow**: SmartRecruiters' public API works statelessly:
+  `api.smartrecruiters.com/v1/companies/ServiceNow/postings?q=<term>&limit=100&offset=N`, detail at
+  `/postings/<id>`. The `careers.smartrecruiters.com/ServiceNow` HTML page is only a location index.
+  Now `access: json`.
+- **Fetch Rewards**: postings live on **Gem** (`jobs.gem.com/fetch/<id>`), linked from
+  `fetch.com/careers/jobs`. Public JSON: `https://api.gem.com/job_board/v0/fetch/job_posts`
+  (title, location, `first_published_at`, `requisition_id`). The greenhouse slug `fetch` is a
+  different company. Gem is likely other companies' ATS too, so try `api.gem.com/job_board/v0/<slug>/job_posts`.
+- **Spec (SpecTrust)**: `tracer.ai` is **not** Spec. It is Tracer (brand protection, formerly
+  Appdetex), the second wrong-company endpoint after `spec.dev`. LinkedIn `/company/spectrust`
+  redirects to `/company/specprotected` (Spec, San Jose, 11-50 employees), whose Jobs tab showed
+  no openings.
+- **Denim**: `denim.com/careers` redirects to `truckstop.com/about/careers/`; the Techstars page 404s.
+- **Palo Alto Networks**: keyword search is path-style:
+  `/en/search-jobs/<term>/United%20States/47263/1/2/6252001/39x76/-98x5/50/2`.
+- **`scripts/discover-board.mjs` has no `--help`**: it treats any first argument as a company
+  name and **writes a registry row** for it. A `--help` row was created this way and had to be
+  hidden with `dismiss-board`.
