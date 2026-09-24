@@ -1,4 +1,4 @@
-# HANDOFF — triage step (bucketed verdicts per role) — IN PROGRESS 2026-09-24
+# HANDOFF — triage step (bucketed verdicts per role) — DONE 2026-09-24 (awaiting user overrides + rubric decisions)
 
 **Goal.** Replace "user pastes postings into a chat and judges them" with an in-project triage step:
 code hard filters, then an LLM verdict per proposal read from the FULL JD against the user's rubric.
@@ -25,7 +25,15 @@ folder); triage is a SEPARATE step after curate (own agent), not inside role-sco
 - [x] 4. triage-agent + `.claude/jobseeker/triage.md` playbook + `/jobseeker triage` (ids | urls | pasted | backlog)
 - [x] 5. job-run + digest wiring (buckets in New Job Postings); dashboard badge if cheap
 - [x] 6. job-evaluation / tailor read career-priorities.md + voice.md; CLAUDE.md pointer; rubric path fixes (shown to user)
-- [ ] 7. run triage on the current backlog (17 proposed) and show the table
+- [x] 7. first run on the backlog: 17 JDs fetched, 1 FILTERED (Google Sr Director, H1), 16 judged: 0 APPLY / 10 LOOK CLOSER / 6 SKIP → output/triage_2026-09-24.md
+
+## Open
+- User to review the table and give overrides (`/jobseeker triage #N <BUCKET> <reason>`).
+- Rubric gaps the judges named (user's call, show exact edits first): time-zone requirements, travel, company no-go list (Roblox),
+  T&S ops/policy directorships, evaluation roles (rubric Adjacent vs repeated dismissals), mixed infra/applied mandates, pay floor, non-ML eng roles.
+- fit-rubric.md says `decisions_log.md` → should say data/applications + data/decisions.md (proposed to user, not applied).
+- voice.md says anchor stories live in the cover template, but templates/cover/cover_master.tex is a placeholder: no anchor stories in the repo yet.
+- data/profile.md predates the 2026-09-24 trust_resume.tex update; refresh it.
 
 ---
 
