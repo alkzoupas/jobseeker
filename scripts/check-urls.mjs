@@ -13,6 +13,7 @@
 //   node scripts/check-urls.mjs --json       # machine output only (default is JSON anyway)
 
 import path from "path";
+import { realpathSync } from "fs";
 import { fileURLToPath } from "url";
 import { readRecordDir } from "../server/md.mjs";
 
@@ -24,7 +25,7 @@ const TIMEOUT_MS = 15_000;
 
 // Soft-404 fingerprints: page loads 200 but the posting is gone. Extend this list as new boards
 // are encountered — it is the cheap, deterministic half of the "is this posting live?" question.
-const DEAD_PATTERNS = [
+export const DEAD_PATTERNS = [
   /no longer (be )?(available|accepting)/i,
   /we couldn'?t find (the|that) (role|job|position)/i,
   /this (job|position|role|posting) (is )?(has )?(been )?(closed|expired|filled|removed)/i,
@@ -129,7 +130,17 @@ async function main() {
   );
 }
 
-main().catch((e) => {
-  process.stderr.write("check-urls.mjs error: " + (e?.message || e) + "\n");
-  process.exit(1);
-});
+// Guarded so scripts/fetch-jd.mjs can import DEAD_PATTERNS without running a URL check.
+const isEntryPoint = (() => {
+  try {
+    return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+})();
+if (isEntryPoint) {
+  main().catch((e) => {
+    process.stderr.write("check-urls.mjs error: " + (e?.message || e) + "\n");
+    process.exit(1);
+  });
+}

@@ -16,6 +16,7 @@ import { fileURLToPath } from "url";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { validateTriage } from "../server/record.mjs";
+import { apiPlan, fromApi, htmlToText, jsonLdJobPosting, linkedinDescription, closedSignal, fetchJd, THIN_CHARS } from "./fetch-jd.mjs";
 
 const run = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -104,6 +105,50 @@ async function cli() {
   await fs.rm(tmp, { recursive: true, force: true });
 }
 
+async function jd() {
+  console.log("\nfetch-jd (no network)");
+  const plan = (u, slug) => apiPlan(u, slug) || {};
+  check("greenhouse job-boards URL → board API", plan("https://job-boards.greenhouse.io/vercel/jobs/6115908004").url === "https://boards-api.greenhouse.io/v1/boards/vercel/jobs/6115908004");
+  check("company careers ?gh_jid= uses the registry's Greenhouse slug", plan("https://careers.roblox.com/jobs/8077261?gh_jid=8077261", "roblox").url === "https://boards-api.greenhouse.io/v1/boards/roblox/jobs/8077261");
+  check("?gh_jid= without a known slug has no API plan", apiPlan("https://stripe.com/jobs/search?gh_jid=8172489") === null);
+  check("lever → postings API", plan("https://jobs.lever.co/loopreturns/8756c2b5-f502").url === "https://api.lever.co/v0/postings/loopreturns/8756c2b5-f502");
+  check("ashby → board API + job id", plan("https://jobs.ashbyhq.com/suno/9ed2cea6").jobId === "9ed2cea6");
+  check("smartrecruiters → postings API by numeric id", plan("https://jobs.smartrecruiters.com/ServiceNow/744000146526999-senior-manager").url === "https://api.smartrecruiters.com/v1/companies/ServiceNow/postings/744000146526999");
+  check("gem → board API + job id", plan("https://jobs.gem.com/fetch/am9icG9zdDp2").jobId === "am9icG9zdDp2");
+  check("workday → cxs API, locale segment dropped", plan("https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Director_JR1").url === "https://nvidia.wd5.myworkdayjobs.com/wday/cxs/nvidia/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Director_JR1");
+  check("LinkedIn has no API plan", apiPlan("https://www.linkedin.com/jobs/view/4469498180/") === null);
+
+  check("htmlToText keeps list structure", htmlToText("<p>Intro</p><ul><li>One</li><li>Two &amp; three</li></ul>") === "Intro\n\n- One\n- Two & three");
+  check("htmlToText decodes Greenhouse's entity-escaped HTML", htmlToText("&lt;p&gt;Hello &amp;amp; bye&lt;/p&gt;") === "Hello & bye");
+  check("htmlToText drops scripts", !htmlToText("<script>var x=1</script><p>JD</p>").includes("var"));
+  const ld = jsonLdJobPosting(`<script type="application/ld+json">{"@type":"JobPosting","title":"EM","description":"&lt;p&gt;Build detection&lt;/p&gt;"}</script>`);
+  check("JSON-LD JobPosting is extracted", ld && ld.title === "EM" && ld.text === "Build detection");
+  const li = linkedinDescription(`<title>EM at Acme | LinkedIn</title><div class="show-more-less-html__markup description__text">Own <b>abuse</b> detection</div><button class="show-more-less-html__button">`);
+  check("LinkedIn description block is extracted, title cleaned", li && li.text === "Own abuse detection" && li.title === "EM at Acme");
+  check("closed notice deep in a whole page is found", /Job not found/.test(closedSignal(`<p>nav</p>${"<p>footer</p>".repeat(400)}<p>Job not found. This job may have been taken down.</p>`, { whole: true })));
+  check("a JD saying 'no longer' past the banner is not closed", closedSignal(`<p>${"x ".repeat(2000)} this position is closed to agencies</p>`) === "");
+  check("fromApi(greenhouse) reads content", fromApi("greenhouse", { title: "EM", content: "&lt;p&gt;Hi&lt;/p&gt;" }).text === "Hi");
+  check("fromApi(ashby) finds the job by id", fromApi("ashby", { jobs: [{ id: "a", title: "A", descriptionPlain: "AAA" }, { id: "b", title: "B", descriptionPlain: "BBB" }] }, "b").text === "BBB");
+
+  const long = "Detect abuse. ".repeat(100);
+  const fake = (map) => async (url) => (url in map ? { ok: true, status: 200, body: map[url] } : { ok: false, status: 404, body: "" });
+  let r = await fetchJd("https://jobs.lever.co/acme/1", { fetcher: fake({ "https://api.lever.co/v0/postings/acme/1": JSON.stringify({ text: "EM", descriptionPlain: long }) }) });
+  check("API answer wins when it is a full JD", r.via === "lever-api" && !r.thin);
+  r = await fetchJd("https://jobs.lever.co/acme/2", { fetcher: fake({ "https://jobs.lever.co/acme/2": `<script type="application/ld+json">{"@type":"JobPosting","description":"${long}"}</script>` }) });
+  check("API 404 falls back to the page's JSON-LD", r.via === "json-ld" && !r.thin);
+  r = await fetchJd("https://www.linkedin.com/jobs/view/1/", { fetcher: fake({ "https://www.linkedin.com/jobs/view/1/": `<title>Jobs</title><p>${long}</p>` }) });
+  check("a LinkedIn page without the description block is thin, never page text", r.thin && r.text === "");
+  r = await fetchJd("https://careers.example.com/j/1", { fetcher: fake({ "https://careers.example.com/j/1": `<p>${long}</p><p>Job not found.</p>` }) });
+  check("a page that says the job is gone is closed, not a JD", r.closed === true && r.text === "");
+  let asked = false;
+  const browserFetch = async () => ((asked = true), { title: "t", text: long });
+  r = await fetchJd("https://spa.example.com/j/1", { fetcher: fake({ "https://spa.example.com/j/1": "<div id=app></div>" }), browserFetch });
+  check("Chrome is NOT used unless the caller opts in", r.thin && !asked);
+  r = await fetchJd("https://spa.example.com/j/1", { fetcher: fake({ "https://spa.example.com/j/1": "<div id=app></div>" }), browser: true, browserFetch });
+  check("with --browser, a JS-rendered page is read through Chrome", r.via === "browser" && asked && r.text.length >= THIN_CHARS);
+}
+
 await cli();
+await jd();
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);
