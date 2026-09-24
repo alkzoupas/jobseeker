@@ -22,7 +22,7 @@
 //   node server/record.mjs log <type> <detail...>
 //   node server/record.mjs dismissal-patterns          -> why roles get rejected, so scouts stop repeating them
 //   node server/record.mjs list-keys                    -> dedupe keys, skip flags, seen_req_ids, repost_of
-//   node server/record.mjs list-proposals [--since d] [--limit n] [--status s] -> digest rows with exact job_url
+//   node server/record.mjs list-proposals [--since d] [--limit n] [--status s] [--no-skip] -> digest rows with exact job_url, triage bucket first
 //   node server/record.mjs add-spend '<json>'          -> record what a run cost
 //   node server/record.mjs list-spend [--month YYYY-MM] [--limit n] -> month total + recent runs
 //   node server/record.mjs get-watermark <channel>      -> last swept timestamp for gmail|whatsapp|linkedin
@@ -982,7 +982,7 @@ async function dismissalPatterns() {
 // the link entirely.
 //
 //   node server/record.mjs list-proposals [--since <iso-or-date>] [--limit N] [--status s]
-async function listProposals({ since = null, limit = 0, status = "proposed" } = {}) {
+async function listProposals({ since = null, limit = 0, status = "proposed", noSkip = false } = {}) {
   const records = await readRecordDir(path.join(DATA, "proposals"));
   let rows = records.map((r) => r.data).filter((d) => d && d.id);
 
@@ -994,7 +994,12 @@ async function listProposals({ since = null, limit = 0, status = "proposed" } = 
   // A repost of something already applied to is not a new posting; the digest must not offer it.
   rows = rows.filter((d) => !d.repost_of);
 
-  rows.sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
+  // Triaged roles lead in bucket order (APPLY, LOOK CLOSER), then untriaged, then SKIP/FILTERED;
+  // within a bucket the triage score, then the old priority. --no-skip drops SKIP and FILTERED,
+  // which is what the digest's "New Job Postings" wants.
+  if (noSkip) rows = rows.filter((d) => d.triage_bucket !== "SKIP" && d.triage_bucket !== "FILTERED");
+  const rank = (d) => ({ APPLY: 0, "LOOK CLOSER": 1, "": 2, SKIP: 3, FILTERED: 4 })[d.triage_bucket || ""] ?? 2;
+  rows.sort((a, b) => rank(a) - rank(b) || Number(b.triage_score || 0) - Number(a.triage_score || 0) || Number(b.priority || 0) - Number(a.priority || 0));
   if (limit > 0) rows = rows.slice(0, limit);
 
   return {
@@ -1006,6 +1011,8 @@ async function listProposals({ since = null, limit = 0, status = "proposed" } = 
       location: d.location || "",
       priority: Number(d.priority || 0),
       found_date: d.found_date || "",
+      bucket: d.triage_bucket || "",
+      reason: d.triage_reason || "",
       // Verbatim. Do not normalise, shorten or strip parameters.
       job_url: d.job_url || "",
     })),
@@ -1494,6 +1501,7 @@ async function dispatch(cmd, rest) {
         since: flag("--since"),
         limit: Number(flag("--limit", 0)) || 0,
         status: flag("--status", "proposed"),
+        noSkip: rest.includes("--no-skip"),
       });
       break;
     }

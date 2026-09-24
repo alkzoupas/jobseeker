@@ -55,7 +55,7 @@ that fills in when you report it:
 node server/record.mjs progress <step> <running|done|failed|skipped>
 ```
 
-Steps, in order: `start`, `track`, `curate`, `reconcile`, `supervise`, `digest`. Mark `start done`
+Steps, in order: `start`, `track`, `curate`, `triage`, `reconcile`, `supervise`, `digest`. Mark `start done`
 right after the run-start row above. Mark each stage `running` as you launch it and `done` (or
 `failed` / `skipped`, e.g. chat-tracker skipped still leaves `track` done) when its agents return.
 Stages 2 and 3 run together, so both can be `running` at once. The command is a no-op when nobody
@@ -133,6 +133,15 @@ node scripts/check-urls.mjs
 Hand its `needs_attention` list to a scout to re-derive live URLs (or drop the roles), per
 AGENT-RULES §7. Note that `resolves` only means the link loads — it is not verification.
 
+## 2b. Triage the new roles (after ALL scouts return, before supervise)
+
+Judge every new role against my fit rubric, so the digest shows verdicts, not raw scores. Follow
+`.claude/jobseeker/triage.md` with empty arguments (= every untriaged proposal), steps 1 to 5,
+and mark `triage running` / `done`. It needs every scout finished, because it judges what they
+wrote. Chrome is free by then, so `fetch-jd.mjs --untriaged --browser` is allowed. Its
+triage-agent batches count against the 3-agent cap alongside the reconciler. Skip it, and say so
+under Coverage, only if `data/fit-rubric.md` is missing or empty.
+
 ## 3. Reconcile across channels (concurrent with stage 2)
 
 Launch the **reconciler** agent. It reads all open tasks and all of `data/communications.md` and
@@ -160,9 +169,10 @@ Highlights
 - <the decision-worthy items, most urgent first — 3 to 6 bullets, one line each>
 
 New Job Postings
-<Company name> - <Job posting>
+<Company name> - <Job posting> [APPLY | LOOK CLOSER]
 <job_url on its own line, so it is tappable on a phone>
-<… best matches first, MAXIMUM 5. If none were found this run, write "None found today.">
+<… APPLY first, then LOOK CLOSER, MAXIMUM 5. If none were found this run, write "None found today.">
+<one last line when triage ran: "Triage: A apply · L look closer · S skip · F filtered — output/triage_<date>.md">
 
 Follow ups for Today
 - <Who> - <the ask, in a few words>
@@ -185,8 +195,12 @@ Rules for the content:
   with:
 
   ```
-  node server/record.mjs list-proposals --since <this run's date> --limit 5
+  node server/record.mjs list-proposals --since <this run's date> --no-skip --limit 5
   ```
+
+  It returns APPLY first, then LOOK CLOSER, then anything triage could not judge, and never SKIP or
+  FILTERED: a role my rubric rejects is not a new posting for me. Put the `bucket` in brackets after
+  the title. The SKIP and FILTERED roles are still in the triage file for false-negative review.
 
   Copy `job_url` **verbatim** onto its own line beneath the title. Never reconstruct, shorten,
   "clean" or guess a URL: the user taps these on a phone to apply, so a plausible-but-wrong link
@@ -312,5 +326,6 @@ tool**, so an "emailed digest" would sit unsent in Drafts. Verified, not assumed
 - **Report partial coverage explicitly.** If a market was skipped, a channel was unavailable, or a
   scout bailed, say which. A run that quietly covered half of what it claims is a failure.
 
-End by telling me the three things waiting for me: **proposals to review**, **follow-ups due**, and
+End by telling me the three things waiting for me: **proposals to review** (the triage table's
+APPLY and LOOK CLOSER rows, with the file path, and how to override: `#4 should be SKIP …`), **follow-ups due**, and
 **approvals pending** — with the exact commands to act (`/jobseeker apply <id>`, `/jobseeker followup`).

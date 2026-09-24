@@ -1380,11 +1380,26 @@ function normCompanyKey(name) {
   return String(name || "").toLowerCase().replace(/\b(inc|llc|ltd|gmbh|corp|co|the)\b/g, "").replace(/[^a-z0-9]+/g, "");
 }
 
+const TRIAGE_RANK = { APPLY: 0, "LOOK CLOSER": 1, "": 2, SKIP: 3, FILTERED: 4 };
+const triageRank = (p) => TRIAGE_RANK[p.triage_bucket || ""] ?? 2;
+// The verdict, with its one-sentence reason (and the rule for a Fail or a filter) on hover. An
+// untriaged proposal still shows the scout's priority so nothing looks blank before the first run.
+function triageCell(p) {
+  const b = p.triage_bucket || "";
+  if (!b) return `<span title="Not triaged yet — the scout's priority">${esc(p.priority ?? "")}</span>`;
+  const tip = [p.triage_reason, p.triage_rule ? `Rule: ${p.triage_rule}` : "", p.triage_flags ? `Flags: ${p.triage_flags}` : "", p.triage_override ? `Your override: ${p.triage_override}` : ""]
+    .filter(Boolean).join("\n");
+  const cls = { APPLY: "t-apply", "LOOK CLOSER": "t-look", SKIP: "t-skip", FILTERED: "t-filt" }[b] || "t-look";
+  return `<span class="tbadge ${cls}" title="${esc(tip)}">${esc(b)}${p.triage_score ? ` ${esc(p.triage_score)}` : ""}${p.triage_override ? " ✎" : ""}</span>`;
+}
+
 function proposalsHTML(props, appliedByCompany, reposts = {}, busy = null) {
   if (!props.length) return `<p class="empty">No proposals yet. Run <code>/jobseeker curate</code>.</p>`;
   const rows = props
     .map((p) => p.data)
-    .sort((x, y) => Number(y.priority || 0) - Number(x.priority || 0))
+    // Triage verdict first (APPLY, LOOK CLOSER, untriaged, SKIP, FILTERED), then its score, then the
+    // old priority. Same order as `record.mjs list-proposals`, so the dashboard and digest agree.
+    .sort((x, y) => triageRank(x) - triageRank(y) || Number(y.triage_score || 0) - Number(x.triage_score || 0) || Number(y.priority || 0) - Number(x.priority || 0))
     .map((p) => {
       const st = (p.status || "proposed").toLowerCase();
       // NEW = freshly found & not yet reviewed/actioned (seen != yes and still "proposed").
@@ -1468,7 +1483,7 @@ function proposalsHTML(props, appliedByCompany, reposts = {}, busy = null) {
         <td>${esc(p.role)}</td>
         <td>${esc(p.location)}</td>
         <td>${esc(p.market)}</td>
-        <td>${esc(p.priority ?? "")}</td>
+        <td>${triageCell(p)}</td>
         <td><span class="pill s-${esc(st)}">${esc(p.status)}</span></td>
         <td>${(p.verified || "no") === "yes"
           ? `<span class="vbadge vyes" title="Opened the posting & confirmed title + location">✓ verified</span>`
@@ -1489,7 +1504,7 @@ function proposalsHTML(props, appliedByCompany, reposts = {}, busy = null) {
     })
     .join("");
   return `<div class="scroll"><table>
-    <thead><tr><th></th><th>Company</th><th>Role</th><th>Location</th><th>Market</th><th>Priority</th><th>Status</th><th>Verified</th><th>Link</th></tr></thead>
+    <thead><tr><th></th><th>Company</th><th>Role</th><th>Location</th><th>Market</th><th title="Triage verdict from your fit rubric (score orders within a bucket), or the scout's priority when not yet triaged">Verdict</th><th>Status</th><th>Verified</th><th>Link</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -2634,12 +2649,14 @@ const RUN_STEPS = {
     ["start", "Getting ready"],
     ["track", "Reading your channels"],
     ["curate", "Researching markets and finding roles"],
+    ["triage", "Judging new roles against your rubric"],
     ["reconcile", "Closing tasks already done"],
     ["supervise", "Checking the tracker for problems"],
     ["digest", "Writing your digest"],
   ],
   track: [["track", "Reading your channels"]],
   curate: [["curate", "Finding new roles"]],
+  triage: [["triage", "Judging roles against your rubric"]],
   followup: [["followup", "Drafting due follow-ups"]],
   apply: [["apply", "Filling in the application"]],
 };
@@ -4968,6 +4985,9 @@ tr.pdismissed{opacity:.45}tr.pdismissed td:nth-child(3){text-decoration:line-thr
 tr.rowdismissed{opacity:.45}
 .vbadge{font-size:11px;padding:1px 7px;border-radius:6px;white-space:nowrap}
 .vyes{background:#1f5b46;color:#c6f0dc}.vno{background:#4a3a2a;color:#f0d9b8}
+.tbadge{font-size:11px;font-weight:700;padding:1px 7px;border-radius:6px;white-space:nowrap;cursor:help}
+.t-apply{background:#1f5b46;color:#c6f0dc}.t-look{background:#4a3a2a;color:#f0d9b8}
+.t-skip{background:#3a2a3a;color:#d9b8d0}.t-filt{background:#2a2f48;color:#9aa0bd}
 .volatile-url a{color:#ff6b6b !important;text-decoration:underline wavy #ff6b6b}
 .advform{display:inline;margin-left:6px}
 .advbtn{background:#2ea06e;color:#04160e;border:0;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;animation:advpulse 2s ease-in-out infinite}

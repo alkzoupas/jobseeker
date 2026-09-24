@@ -89,6 +89,11 @@ async function cli() {
   lt = await rec("list-triage");
   check("ordered by bucket, then score within a bucket", lt.proposals.map((p) => p.id).join(",") === [c, a, b].join(","), lt.proposals.map((p) => `${p.company}:${p.bucket}:${p.score}`).join(" "));
   check("nothing left untriaged", (await rec("list-triage", "--untriaged")).count === 0);
+  const d = (await rec("upsert-proposal", JSON.stringify({ company: "Delta", role: "EM, Untriaged", status: "proposed", priority: 0.99 }))).id;
+  const lp = await rec("list-proposals");
+  check("list-proposals: triaged buckets lead, untriaged next, SKIP last", lp.proposals.map((p) => p.id).join(",") === [c, a, d, b].join(","), lp.proposals.map((p) => `${p.company}:${p.bucket || "-"}`).join(" "));
+  check("list-proposals carries bucket and reason", lp.proposals[0].bucket === "APPLY" && lp.proposals[0].reason === "Applied ML.");
+  check("list-proposals --no-skip drops SKIP (the digest's view)", !(await rec("list-proposals", "--no-skip")).proposals.some((p) => p.id === b));
   const body = await fs.readFile(path.join(tmp, "data", "proposals", `${a}.md`), "utf8");
   check("the proposal body (rationale) is kept", body.includes("body kept"));
 
