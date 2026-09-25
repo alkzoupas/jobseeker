@@ -51,6 +51,7 @@ document. Agents read them; **never edit them without showing the user the exact
 | `data/decisions.md` | The user's triage overrides (written only by `record.mjs override`), read as examples each run |
 | `templates/cv/trust_resume.tex` | The master CV: the only source of claims for tailoring |
 | `templates/cover/voice.md` + `anchor-stories.md` | Cover-letter voice rules + reusable anchor stories (tailoring, on request only). `cover_master.tex` is only the LaTeX layout |
+| `templates/interview/` (gitignored) | Interview prep: master story bank, team intro, per-round preps (recruiter screen, strategy, people). `README.md` indexes them and holds the locked facts (numbers, ownership wording, RIF timing). Per-call prep goes in `output/<company>-*-prep_<date>.md` |
 
 Application history is `data/applications/*.md` plus dismissed proposals (`record.mjs dismissal-patterns`).
 Tailoring (`/tailor`) never runs as part of triage; only when the user asks.
