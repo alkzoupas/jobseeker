@@ -12,4 +12,5 @@ Local server at `http://localhost:8888`, bank `jobseeker`. If it doesn't answer,
 - Before modifying the repo, recall:
   `curl -s -m 5 -X POST http://localhost:8888/v1/default/banks/jobseeker/memories/recall -H "Content-Type: application/json" -d '{"query": "<the task>"}'`
 - At session end, retain only durable technical lessons (decisions and why, root-caused bugs, rejected approaches), never progress narration:
-  `curl -s -m 15 -X POST http://localhost:8888/v1/default/banks/jobseeker/memories -H "Content-Type: application/json" -d '{"items": [{"content": "<summary>", "context": "<task>"}]}'`
+  `curl -s -m 15 -X POST http://localhost:8888/v1/default/banks/jobseeker/memories -H "Content-Type: application/json" -d '{"async": true, "items": [{"content": "<summary>", "context": "<task>"}]}'`
+  (keep `"async": true`: the server extracts facts with a slow local LLM, so a synchronous save times out)
