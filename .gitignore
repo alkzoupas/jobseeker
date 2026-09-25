@@ -19,6 +19,7 @@ templates/cover/
 !templates/cover/cover.cls
 !templates/cover/cover_master.tex
 templates/answers.md
+templates/interview/
 templates/*.bak*
 output/
 
