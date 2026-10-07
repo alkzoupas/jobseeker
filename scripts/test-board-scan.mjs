@@ -172,6 +172,29 @@ const wdFetch = async (step) => {
 r = await readBoard({ endpoint: "POST https://t.wd1.myworkdayjobs.com/wday/cxs/t/Site/jobs body {}" }, ["A", "B"], wdFetch);
 check("paging stops on a short page, survives a failed later page", r.state === "ok" && r.partial === true && r.postings.length === 23 + 20 && calls === 4, `postings=${r.postings.length} calls=${calls}`);
 
+// Radancy (jobs.intuit.com): JSON whose `results` is the list HTML; page count in data attributes.
+const rdHtml = (cur, total) =>
+  `<section data-total-pages="${total}" data-current-page="${cur}"><ul>` +
+  `<li><a href="/job/mountain-view/manager-2-eng/27595/101" data-job-id="23587" class="sr-item"><h2>Manager 2, Engineering &amp; AI</h2>\n  <span class="job-location">Mountain View, California</span></a><button data-job-id="101"></button></li>` +
+  `<li><a href="/job/carson-city/remote-mgr/27595/102" data-job-id="23600"><h2>Engineering Manager</h2><span class="job-location">Remote - Nevada - United States</span></a></li>` +
+  `<li><a href="/job/x/no-loc/27595/103"><h2>Engineering Manager, Risk</h2></a></li>` +
+  `</ul></section>`;
+check("radancy matched by its results path", adapterFor("https://jobs.intuit.com/search-jobs/results") === "radancy");
+const rdPlan = ADAPTERS.radancy.plan("jobs.intuit.com/search-jobs/results", ["Engineering Manager"]);
+check("radancy plan: one group per phrase, paged, keywords encoded", rdPlan.length === 5 && rdPlan[1].url.includes("CurrentPage=2") && rdPlan[0].url.startsWith("https://jobs.intuit.com/search-jobs/results?") && rdPlan[0].url.includes("Keywords=Engineering%20Manager") && rdPlan[0].group === "Engineering Manager");
+const rd = ADAPTERS.radancy.parse({ results: rdHtml(1, 2) }, {}, rdPlan[0]);
+check("radancy parse: title, location, absolute URL, req id", rd.length === 3 && rd[0].title === "Manager 2, Engineering & AI" && rd[0].locations[0] === "Mountain View, California" && rd[0].url === "https://jobs.intuit.com/job/mountain-view/manager-2-eng/27595/101" && rd[0].req_id === "23587", JSON.stringify(rd[0]));
+check("radancy: remote location flagged, missing location kept", rd[1].remote === true && rd[2].locations.length === 0 && rd[2].title === "Engineering Manager, Risk");
+check("radancy without results → null (error, not empty)", ADAPTERS.radancy.parse({ filters: "" }) === null);
+check("radancy paging follows data-total-pages", ADAPTERS.radancy.more({ results: rdHtml(1, 2) }) === true && ADAPTERS.radancy.more({ results: rdHtml(2, 2) }) === false);
+
+// possibly_closed must not pair a company with a board whose name merely starts with the same letters.
+const pcIntuit = possiblyClosed(
+  [{ id: "prop_i", company: "Intuit", role: "Manager 2, AI Science", status: "proposed", job_url: "https://jobs.intuit.com/job/x/1" }],
+  [{ company: "Intuition Machines", state: "ok", partial: false, adapter: "workable", postings: [{ title: "Engineer", url: "https://x/1", locations: [] }] }]
+);
+check("possibly_closed: Intuit is not Intuition Machines", pcIntuit.length === 0);
+
 // ---- dedup ----
 console.log("dedup");
 const keys = {

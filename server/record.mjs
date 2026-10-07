@@ -52,7 +52,7 @@ import {
   assertSafeId,
 } from "./md.mjs";
 import { withLock } from "./lock.mjs";
-import { findRepost, setCompanyAliases} from "./match.mjs";
+import { findRepost, setCompanyAliases, sameCompany as matchSameCompany } from "./match.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -300,7 +300,6 @@ async function listTriage({ untriaged = false, date = null, status = "proposed" 
 // Superseding sets the lead to Dismissed with `superseded_by`, which drops it out of the Leads
 // list's default "Active" filter while keeping it recoverable under "Dismissed". Nothing is deleted.
 const normRole = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-const normComp = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 // "Role TBD", "(unknown …)", "Conversation (TBD)", "Role via referral" — a lead with no real title.
 // These are the ones that become an application under a different name.
@@ -311,12 +310,9 @@ function isPlaceholderRole(role) {
 }
 
 // Agency/parent naming drifts ("Hays" vs "Hays (client: unnamed financial institution)"), so a
-// prefix match counts as the same company.
-function sameCompany(a, b) {
-  const x = normComp(a), y = normComp(b);
-  if (!x || !y) return false;
-  return x === y || x.startsWith(y) || y.startsWith(x);
-}
+// leading-words match counts as the same company (match.mjs; whole words, so "Intuit" is not
+// "Intuition Machines").
+const sameCompany = matchSameCompany;
 
 // Only AUTO-supersede when it is unambiguous. A lead with its own explicit, different role title, or
 // one already progressing through a live stage, is a separate opportunity — those are reported as

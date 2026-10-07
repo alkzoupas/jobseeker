@@ -316,6 +316,11 @@ export function locationFilter(criteriaLocations) {
 // ---------------------------------------------------------------------------------------------
 
 const withScheme = (u) => (/^https?:\/\//i.test(u) ? u : `https://${u}`);
+const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+const decodeEntities = (s) =>
+  String(s || "").replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) =>
+    e[0] === "#" ? String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : ENTITIES[e.toLowerCase()] ?? all
+  );
 const isoDay = (v) => {
   if (v === null || v === undefined || v === "") return "";
   const d = typeof v === "number" ? new Date(v) : new Date(String(v).replace(" UTC", "Z").replace(" ", "T"));
@@ -542,6 +547,52 @@ export const ADAPTERS = {
     },
     more: (j, pageLen) => pageLen === 20,
   },
+  // Radancy / TalentBrew career sites (jobs.intuit.com). boards.md stores the bare
+  // `<host>/search-jobs/results` URL. The endpoint answers JSON whose `results` field is the HTML of
+  // the result list. Search-based and relevance-ordered, so one query per role phrase.
+  radancy: {
+    search: true,
+    match: (u) => /\/search-jobs\/results/i.test(u),
+    plan(endpoint, phrases) {
+      const m = /(https?:\/\/[^/\s?#]+)\/search-jobs\/results/i.exec(withScheme(endpoint));
+      if (!m) return null;
+      return phrases.flatMap((q) =>
+        Array.from({ length: SEARCH_PAGES }, (_, i) => ({
+          url:
+            `${m[1]}/search-jobs/results?ActiveFacetID=0&CurrentPage=${i + 1}&RecordsPerPage=100` +
+            `&Keywords=${encodeURIComponent(q)}&SearchResultsModuleName=Search+Results` +
+            `&SearchFiltersModuleName=Search+Filters&SortCriteria=0&SortDirection=0&SearchType=5`,
+          group: q,
+        }))
+      );
+    },
+    parse(j, board, step) {
+      if (typeof j?.results !== "string") return null;
+      const host = /^(https?:\/\/[^/]+)/i.exec(step?.url || "")?.[1] || "";
+      const out = [];
+      for (const m of j.results.matchAll(/<a\s+href="(\/job\/[^"]+)"([^>]*)>([\s\S]*?)<\/a>/gi)) {
+        const title = /<h2>([\s\S]*?)<\/h2>/i.exec(m[3])?.[1];
+        if (!title) continue;
+        const loc = decodeEntities(/class="job-location">([\s\S]*?)</i.exec(m[3])?.[1] || "").trim();
+        out.push(
+          posting({
+            title: decodeEntities(title).trim(),
+            locations: [loc],
+            remote: /^remote\b/i.test(loc) ? true : null,
+            url: host + m[1],
+            req_id: /data-job-id="([^"]+)"/.exec(m[2])?.[1],
+          })
+        );
+      }
+      return out;
+    },
+    more(j) {
+      const r = String(j?.results || "");
+      const cur = Number(/data-current-page="(\d+)"/.exec(r)?.[1] || 0);
+      const total = Number(/data-total-pages="(\d+)"/.exec(r)?.[1] || 0);
+      return cur > 0 && cur < total;
+    },
+  },
   // Rippling renders server-side; the listing sits in Next.js's embedded page data.
   rippling: {
     html: true,
@@ -577,7 +628,7 @@ export const ADAPTERS = {
 export function adapterFor(endpoint) {
   const u = String(endpoint || "");
   // jobs-index first: Aurora's board is recorded as `ats: ashby` but is not Ashby's API.
-  for (const name of ["jobs-index", "workday", "greenhouse", "lever", "ashby", "workable", "recruitee", "pinpoint", "smartrecruiters", "rippling"]) {
+  for (const name of ["jobs-index", "workday", "greenhouse", "lever", "ashby", "workable", "recruitee", "pinpoint", "smartrecruiters", "radancy", "rippling"]) {
     if (ADAPTERS[name].match(u)) return name;
   }
   return null;

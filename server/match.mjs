@@ -34,13 +34,25 @@ export function normCompany(name) {
   return COMPANY_ALIASES[k] || k;
 }
 
-// Agency and parent naming drifts ("Hays" vs "Hays (client: …)", "G42" vs "Core42 / G42"), so a
-// prefix relationship counts as the same employer.
+const companyWords = (name) =>
+  String(name || "")
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w && !/^(inc|llc|ltd|limited|gmbh|corp|corporation|co|plc|the)$/.test(w));
+const leadingWords = (short, long) => short.length < long.length && short.every((w, i) => w === long[i]);
+
+// Agency and parent naming drifts ("Hays" vs "Hays (client: …)", "TikTok" vs "TikTok / ByteDance"),
+// so one name being the leading WORDS of the other counts as the same employer. Whole words only: a
+// character prefix made "Intuit" the same company as "Intuition Machines".
 export function sameCompany(a, b) {
   const x = normCompany(a);
   const y = normCompany(b);
   if (!x || !y) return false;
-  return x === y || x.startsWith(y) || y.startsWith(x);
+  if (x === y) return true;
+  const wa = companyWords(a);
+  const wb = companyWords(b);
+  return leadingWords(wa, wb) || leadingWords(wb, wa);
 }
 
 // Words that never distinguish one job from another.
