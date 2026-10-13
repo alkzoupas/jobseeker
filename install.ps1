@@ -303,6 +303,10 @@ function Main {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
   } catch { <# .NET Core has no such switch and needs none #> }
 
+  # A developer's checkout is updated with git. Replacing its tree would delete the repository
+  # outright, so refuse before anything is downloaded or changed.
+  if (Test-Path -LiteralPath (Sub $HomeDir ".git")) { Die "$HomeDir is a git checkout -- update it with git pull." }
+
   # -------------------------------------------------------------- 2. fetch the source
   $tmpRoot = $env:TEMP
   if (-not $tmpRoot) { $tmpRoot = [IO.Path]::GetTempPath() }
@@ -328,33 +332,47 @@ function Main {
   if (-not (Test-Path -LiteralPath (Sub $src "server\dashboard.mjs"))) { Die "the download is missing files it should have." }
 
   # -------------------------------------------------------------- 3. install the source
-  # data\ and config\ are the user's, not ours. An update replaces code and leaves those alone --
-  # this is a job search someone may have been running for months.
-  $keep = @("data", "config", "templates")
-  if (Test-Path -LiteralPath $HomeDir) {
+  # An update replaces code and leaves the user's files alone -- this is a job search someone may
+  # have been running for months. Same rule, same keep-lists, as scripts\win\self-update.ps1:
+  #   data\ config\ templates\ .claude\  are MIXED -- the user's files live beside the project's.
+  #                                      Only the entries the download carries are replaced inside them.
+  #   .git node_modules .env* .data ...  are left alone entirely.
+  #   everything else                    is replaced wholesale, so a file deleted upstream really goes.
+  # Only a folder that already holds a JobSeeker is treated this way. Anything else is copied into
+  # and nothing in it is deleted.
+  $keepWhole = @(".git", "node_modules", ".data", ".jobseeker.json", ".DS_Store")
+  $keepMixed = @("data", "config", "templates", ".claude")
+  if (Test-Path -LiteralPath (Sub $HomeDir "package.json")) {
     # A JobSeeker that is already running is running the code we are about to replace. Left alone it
     # keeps serving the old version, so the update appears to have done nothing -- and on Windows it
     # can also hold files open while they are being overwritten. Ask before closing it: it is the
     # user's app and it may be mid-something.
     Stop-RunningJobSeeker $HomeDir
     Step "Updating the copy already in $HomeDir"
-    foreach ($k in $keep) {
-      if ((Test-Path -LiteralPath (Sub $HomeDir $k)) -and (Test-Path -LiteralPath (Sub $src $k))) {
-        Remove-Item -LiteralPath (Sub $src $k) -Recurse -Force
-      }
-    }
-    # Anything not preserved above is replaced wholesale, so a deleted file upstream really goes.
-    Get-ChildItem -LiteralPath $HomeDir -Force | Where-Object { $keep -notcontains $_.Name } |
+    Get-ChildItem -LiteralPath $HomeDir -Force |
+      Where-Object { $keepWhole -notcontains $_.Name -and $keepMixed -notcontains $_.Name -and $_.Name -notlike ".env*" } |
       ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
     Get-ChildItem -LiteralPath $src -Force |
+      Where-Object { $keepWhole -notcontains $_.Name -and $keepMixed -notcontains $_.Name } |
       ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $HomeDir -Recurse -Force }
+    foreach ($k in $keepMixed) {
+      if (-not (Test-Path -LiteralPath (Sub $src $k))) { continue }
+      New-Item -ItemType Directory -Path (Sub $HomeDir $k) -Force | Out-Null
+      foreach ($e in @(Get-ChildItem -LiteralPath (Sub $src $k) -Force)) {
+        $dest = Join-Path (Sub $HomeDir $k) $e.Name
+        if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+        Copy-Item -LiteralPath $e.FullName -Destination $dest -Recurse -Force
+      }
+    }
     Ok "updated (your data and settings were left alone)"
   } else {
     Step "Installing to $HomeDir"
-    $parent = Split-Path -Parent $HomeDir
-    if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-    try { Copy-Item -LiteralPath $src -Destination $HomeDir -Recurse -Force }
-    catch { Die "could not write to $HomeDir ($($_.Exception.Message))" }
+    # Entry by entry: copying the folder itself onto one that already exists nests it inside.
+    try {
+      New-Item -ItemType Directory -Path $HomeDir -Force | Out-Null
+      Get-ChildItem -LiteralPath $src -Force |
+        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $HomeDir -Recurse -Force }
+    } catch { Die "could not write to $HomeDir ($($_.Exception.Message))" }
     Ok "installed to $HomeDir"
   }
 

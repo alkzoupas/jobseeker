@@ -239,11 +239,19 @@ do_node() {
   pct 65
   say "Checking who signed it"
   local sig org
-  sig="$(pkgutil --check-signature "$pkg" 2>&1)"
+  # pkgutil's exit status is the verdict on the signature; the text only says whose it is. Both,
+  # because a valid signature from anyone else is still not Node. HX7739G8FX is the Node.js
+  # Foundation's Apple team identifier, the counterpart of the publisher the Windows twin pins.
+  if ! sig="$(pkgutil --check-signature "$pkg" 2>&1)"; then
+    log "$sig"
+    log "REFUSED: pkgutil could not verify the signature"
+    detail node "The download's signature could not be verified — nothing was installed"
+    step node fail; finish fail
+  fi
   log "$sig"
-  if ! printf '%s' "$sig" | grep -q "Developer ID Installer:"; then
-    log "REFUSED: not signed with an Apple Developer ID Installer certificate"
-    detail node "The download was not signed by a registered developer — nothing was installed"
+  if ! printf '%s' "$sig" | grep -Eq '^ *1\. Developer ID Installer: .*\(HX7739G8FX\)$'; then
+    log "REFUSED: expected the Node.js Foundation's team identifier HX7739G8FX"
+    detail node "The download was not signed by the Node.js Foundation — nothing was installed"
     step node fail; finish fail
   fi
   org="$(printf '%s' "$sig" | sed -n 's/.*Developer ID Installer: \(.*\)/\1/p' | head -1)"
@@ -360,6 +368,13 @@ do_chrome() {
   pct 68
   say "Checking who signed it"
   local team
+  # -d only DISPLAYS what the bundle claims. Verify the signature first, or the team identifier
+  # read below is a label on something that may have been altered since it was signed.
+  if ! codesign --verify --deep "$src" >/dev/null 2>&1; then
+    log "REFUSED: codesign could not verify the signature"
+    detail chrome "The download's signature could not be verified — nothing was installed"
+    step chrome fail; finish fail
+  fi
   team="$(codesign -dv --verbose=2 "$src" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
   log "TeamIdentifier=$team"
   # Google's Apple team identifier. A Chrome that is not signed by Google is not Chrome.

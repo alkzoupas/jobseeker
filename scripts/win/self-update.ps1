@@ -104,9 +104,39 @@ function Set-Status([string]$phase, [int]$pct, [string]$err = "") {
   } catch { }
 }
 
-function Fail([string]$m) { Say ("FAILED: " + $m); Set-Status "failed" $script:Pct $m; Cleanup; exit 1 }
+# Once the server has been stopped, a failure that just exits leaves nothing running and nothing to
+# read the reason in. Not while the swap is unfinished, though: that tree is half old and half new.
+function Fail([string]$m) {
+  Say ("FAILED: " + $m); Set-Status "failed" $script:Pct $m
+  if ($script:Stopped -and -not (Test-Path -LiteralPath $Broken)) { Start-Again }
+  Cleanup; exit 1
+}
 $script:Pct = 0
 $script:Stage = ""
+$script:Stopped = $false
+
+function Start-Again {
+  if ($env:JOBSEEKER_NO_LAUNCH -eq "1") { return }
+  # NO_WINDOW: the user's --app window is still open and reloads itself once the server answers.
+  # Opening another would leave a dead window beside a live one, which reads as a bug.
+  $env:JOBSEEKER_NO_WINDOW = "1"
+  Say "starting the dashboard again"
+  # Started, never piped. `& powershell ... | Out-Null` reads launch.ps1's output through a pipe, and
+  # launch.ps1 starts node with redirected logs, which on Windows PowerShell 5.1 is a CreateProcess
+  # that hands the server every inheritable handle -- that pipe included. The read then waits for
+  # the SERVER to exit: this sat at "restarting" for as long as the new dashboard ran, never said
+  # done, and left update.lock naming a live pid, so the next update was refused as already running.
+  #
+  # Not -Wait either: in 5.1 that waits for the whole process tree, which is the server again. And
+  # bounded, because a failing launch.ps1 raises a dialog that waits for a click. The poll after a
+  # successful swap, not this, is what decides whether the update worked.
+  try {
+    $launcher = Start-Process -FilePath "powershell.exe" -PassThru -WindowStyle Hidden -ArgumentList @(
+      "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "`"$(Join-Path $Repo "scripts\win\launch.ps1")`"")
+    if ($launcher.WaitForExit(30000)) { Say ("launch.ps1 exited " + $launcher.ExitCode) }
+    else { Say "launch.ps1 is still running after 30s" }
+  } catch { Say ("could not start launch.ps1: " + $_.Exception.Message) }
+}
 
 function Cleanup {
   try { Remove-Item -LiteralPath $LockFile -Force -ErrorAction SilentlyContinue } catch { }
@@ -157,22 +187,25 @@ if ($FromV -eq $NewV -and $env:JOBSEEKER_UPDATE_FORCE -ne "1") { Fail ("already 
 # drive, where Move-Item silently degrades into a copy -- which is the slow, interruptible thing
 # this whole design exists to avoid.
 $script:Stage = Join-Path (Split-Path -Parent $Repo) (".jobseeker-update-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
-New-Item -ItemType Directory -Force -Path $script:Stage | Out-Null
+try { New-Item -ItemType Directory -Force -Path $script:Stage | Out-Null } catch { Fail "could not create a staging folder" }
 
 $script:Pct = 15; Set-Status "downloading" 15
 $zip = Join-Path $script:Stage "src.zip"
 $url = if ($env:JOBSEEKER_URL) { $env:JOBSEEKER_URL } else { "https://codeload.github.com/$Slug/zip/refs/tags/$Tag" }
 Say "downloading $url"
-# A local archive is copied rather than fetched. PowerShell 7 refuses the file: scheme outright
-# (5.1 allows it), so a test that hands this a local zip would fail on the runner and not on a
-# user's machine -- which is the wrong way round for a test to behave.
+# https only for the real thing. A local archive (a file: URL or a plain path) is copied rather
+# than fetched. PowerShell 7 refuses the file: scheme outright (5.1 allows it), so a test that hands
+# this a local zip would fail on the runner and not on a user's machine -- which is the wrong way
+# round for a test to behave.
 $localSrc = ""
-if ($url -match '^file://(.+)$') { $localSrc = $Matches[1] } elseif ($url -notmatch '^https?://') { $localSrc = $url }
+if ($url -match '^file://(.+)$') { $localSrc = $Matches[1] }
+elseif ($url -notmatch '://') { $localSrc = $url }
+elseif ($url -notmatch '^https://') { Fail "refusing to download over anything but https" }
 if ($localSrc) {
   if (-not (Test-Path -LiteralPath $localSrc)) { Fail ("no archive at " + $localSrc) }
   Copy-Item -LiteralPath $localSrc -Destination $zip -Force
 } else {
-  try { Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing } catch { Fail ("could not download " + $Tag + " - check your internet connection") }
+  try { Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 300 } catch { Fail ("could not download " + $Tag + " - check your internet connection") }
 }
 $size = (Get-Item -LiteralPath $zip).Length
 if ($size -lt 50000) { Fail ("the download looks wrong (" + $size + " bytes)") }
@@ -191,9 +224,21 @@ foreach ($must in @("server\dashboard.mjs", "package.json", "installer\ui.html",
 $count = @(Get-ChildItem -LiteralPath $src -Recurse -File -Force).Count
 if ($count -lt 120) { Fail ("the download has only " + $count + " files - it looks truncated") }
 
-$gotV = ""
-try { $gotV = (Get-Content -Raw -LiteralPath (Join-Path $src "package.json") | ConvertFrom-Json).version } catch { }
+$pkg = $null
+try { $pkg = Get-Content -Raw -LiteralPath (Join-Path $src "package.json") | ConvertFrom-Json } catch { }
+$gotV = "$($pkg.version)"
 if ($gotV -ne $NewV) { Fail ($Tag + " contains version " + $gotV + ", not " + $NewV) }
+# In try: a node that is not on the Path is a throw here, not an exit code.
+$parses = $false
+try { $parses = ((Invoke-Native "node" @("--check", (Join-Path $src "server\dashboard.mjs")))[0] -eq 0) } catch { }
+if (-not $parses) { Fail "the new dashboard does not parse" }
+
+# Refusing here costs nothing. Discovering it after the swap leaves an install that will not start.
+$need = 0
+if ("$($pkg.engines.node)" -match '\d+') { $need = [int]$Matches[0] }
+$have = 0
+try { if ((Invoke-Native "node" @("--version"))[1] -match '^v(\d+)') { $have = [int]$Matches[1] } } catch { }
+if ($need -and $have -lt $need) { Fail ($Tag + " needs Node " + $need + " and this machine has " + $have + " - run the installer instead") }
 Say ("verified " + $Tag + " (" + $count + " files)")
 
 if ($Check) { Say "-Check: stopping before anything is changed"; Set-Status "checked" 100; Cleanup; exit 0 }
@@ -202,6 +247,7 @@ if ($Check) { Say "-Check: stopping before anything is changed"; Set-Status "che
 # stop.ps1, not POST /quit: it is the one place that knows how to tell OUR dashboard from a stranger
 # holding a reused pid, and it is still readable because nothing has been replaced yet.
 $script:Pct = 45; Set-Status "stopping" 45
+$script:Stopped = $true
 Say "stopping the dashboard"
 # What stop.ps1 found goes in the log, not to Out-Null. "Stopped JobSeeker (pid 1234)" and
 # "JobSeeker was not running" are the difference between a failure that can be read and one that
@@ -327,12 +373,21 @@ function Move-Retry([string]$from, [string]$to) {
 function Record($from, $to) { [void]$moves.Add(@($from, $to)) }
 function Rollback {
   Say "rolling back"
+  $bad = 0
   for ($i = $moves.Count - 1; $i -ge 0; $i--) {
     $m = $moves[$i]
-    if (Test-Path -LiteralPath $m[1]) { Move-Item -LiteralPath $m[1] -Destination $m[0] -Force -ErrorAction SilentlyContinue }
+    if ((Test-Path -LiteralPath $m[1]) -and -not (Move-Retry $m[1] $m[0])) { Say ("could not put back " + $m[0]); $bad++ }
   }
-  $script:RolledBack = $true
-  Remove-Item -LiteralPath $Broken -Force -ErrorAction SilentlyContinue
+  if ($bad -eq 0) {
+    $script:RolledBack = $true
+    $script:NotRestored = ""
+    Remove-Item -LiteralPath $Broken -Force -ErrorAction SilentlyContinue
+  } else {
+    # Rolled back means every move was undone. Short of that the marker stays, which is also what
+    # keeps $old -- the only copy of whatever is still missing -- from being cleaned up.
+    $script:NotRestored = " - and the previous version could not be fully put back; what is missing is in " + $old
+    Say ("rollback incomplete: leaving " + $Broken + " and " + $old + " in place")
+  }
 }
 function Swap-In([string]$from, [string]$to, [string]$rel) {
   if (Test-Path -LiteralPath $to) {
@@ -359,7 +414,7 @@ foreach ($e in @(Get-ChildItem -LiteralPath $Repo -Force)) {
 
 foreach ($e in @(Get-ChildItem -LiteralPath $src -Force)) {
   if ($KeepWhole -contains $e.Name -or $KeepMixed -contains $e.Name) { continue }
-  if (-not (Swap-In $e.FullName (Join-Path $Repo $e.Name) $e.Name)) { Rollback; Fail ("could not replace " + $e.Name) }
+  if (-not (Swap-In $e.FullName (Join-Path $Repo $e.Name) $e.Name)) { Rollback; Fail ("could not replace " + $e.Name + $script:NotRestored) }
 }
 
 # Mixed directories: replace only what the archive actually contains inside them. .gitignore keeps
@@ -371,7 +426,7 @@ foreach ($k in $KeepMixed) {
   New-Item -ItemType Directory -Force -Path (Join-Path $Repo $k) | Out-Null
   foreach ($e in @(Get-ChildItem -LiteralPath $ksrc -Force)) {
     $rel = Join-Path $k $e.Name
-    if (-not (Swap-In $e.FullName (Join-Path $Repo $rel) $rel)) { Rollback; Fail ("could not replace " + $rel) }
+    if (-not (Swap-In $e.FullName (Join-Path $Repo $rel) $rel)) { Rollback; Fail ("could not replace " + $rel + $script:NotRestored) }
   }
 }
 
@@ -387,25 +442,7 @@ try {
 
 $script:Pct = 90; Set-Status "restarting" 90
 if ($env:JOBSEEKER_NO_LAUNCH -ne "1") {
-  # NO_WINDOW: the user's --app window is still open and reloads itself once the server answers.
-  # Opening another would leave a dead window beside a live one, which reads as a bug.
-  $env:JOBSEEKER_NO_WINDOW = "1"
-  Say "starting the dashboard again"
-  # Started, never piped. `& powershell ... | Out-Null` reads launch.ps1's output through a pipe, and
-  # launch.ps1 starts node with redirected logs, which on Windows PowerShell 5.1 is a CreateProcess
-  # that hands the server every inheritable handle -- that pipe included. The read then waits for
-  # the SERVER to exit: this sat at "restarting" for as long as the new dashboard ran, never said
-  # done, and left update.lock naming a live pid, so the next update was refused as already running.
-  #
-  # Not -Wait either: in 5.1 that waits for the whole process tree, which is the server again. And
-  # bounded, because a failing launch.ps1 raises a dialog that waits for a click. The poll below,
-  # not this, is what decides whether the update worked.
-  try {
-    $launcher = Start-Process -FilePath "powershell.exe" -PassThru -WindowStyle Hidden -ArgumentList @(
-      "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "`"$(Join-Path $Repo "scripts\win\launch.ps1")`"")
-    if ($launcher.WaitForExit(30000)) { Say ("launch.ps1 exited " + $launcher.ExitCode) }
-    else { Say "launch.ps1 is still running after 30s" }
-  } catch { Say ("could not start launch.ps1: " + $_.Exception.Message) }
+  Start-Again
 
   for ($i = 0; $i -lt 60; $i++) {
     try {

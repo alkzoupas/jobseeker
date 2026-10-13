@@ -89,7 +89,15 @@ JSON
 }
 ROLLED_BACK=false
 
-die() { say "FAILED: $*"; status failed "${PCT:-0}" "$*"; exit 1; }
+# Once the app has been stopped, a failure that just exits leaves nothing running and nothing to
+# read the reason in. Not while the swap is unfinished, though: that tree is half old and half new.
+reopen() {
+  if [ -n "${APP:-}" ] && [ "${JOBSEEKER_NO_LAUNCH:-}" != "1" ]; then
+    say "reopening $APP"
+    open "$APP" 2>/dev/null
+  fi
+}
+die() { say "FAILED: $*"; status failed "${PCT:-0}" "$*"; [ -e "$BROKEN" ] || reopen; exit 1; }
 PCT=0
 
 # ---------------------------------------------------------------- one at a time
@@ -322,11 +330,26 @@ reverse() { tail -r "$1" 2>/dev/null || tac "$1" 2>/dev/null; }
 rollback() {
   say "rolling back"
   # Backwards, so a path moved out and then written over is restored in the right order.
-  reverse "$MOVES" | while IFS="$(printf '\t')" read -r from to; do
-    [ -n "$to" ] && [ -e "$to" ] && mv "$to" "$from" 2>/dev/null
-  done
-  ROLLED_BACK=true
-  rm -f "$BROKEN"
+  # The loop is the far side of a pipe, so its verdict has to come back as an exit status.
+  if reverse "$MOVES" | {
+    bad=0
+    while IFS="$(printf '\t')" read -r from to; do
+      [ -n "$to" ] && [ -e "$to" ] || continue
+      mv "$to" "$from" 2>/dev/null || { say "could not put back $from"; bad=1; }
+    done
+    exit "$bad"
+  }; then
+    ROLLED_BACK=true
+    NOT_RESTORED=""
+    rm -f "$BROKEN"
+  else
+    # Rolled back means every move was undone. Short of that the marker stays (or comes back: a
+    # failed rebuild gets here after it was cleared), which is also what keeps $OLD -- the only
+    # copy of whatever is still missing -- from being cleaned up.
+    touch "$BROKEN"
+    NOT_RESTORED=" — and the previous version could not be fully put back; what is missing is in $OLD"
+    say "rollback incomplete: leaving $BROKEN and $OLD in place"
+  fi
 }
 
 swap_in() { # source entry, destination
@@ -367,7 +390,7 @@ for entry in "$STAGE/src"/* "$STAGE/src"/.[!.]*; do
   [ -e "$entry" ] || continue
   name="$(basename "$entry")"
   case "$KEEP_WHOLE$KEEP_MIXED" in *" $name "*) continue ;; esac
-  swap_in "$entry" "$REPO/$name" || { rollback; die "could not replace $name"; }
+  swap_in "$entry" "$REPO/$name" || { rollback; die "could not replace $name$NOT_RESTORED"; }
 done
 
 # Mixed directories: replace only what the archive actually contains inside them. Everything the
@@ -380,7 +403,7 @@ for k in data config templates .claude; do
   for entry in "$STAGE/src/$k"/* "$STAGE/src/$k"/.[!.]*; do
     [ -e "$entry" ] || continue
     name="$(basename "$entry")"
-    swap_in "$entry" "$REPO/$k/$name" || { rollback; die "could not replace $k/$name"; }
+    swap_in "$entry" "$REPO/$k/$name" || { rollback; die "could not replace $k/$name$NOT_RESTORED"; }
   done
 done
 
@@ -395,7 +418,7 @@ if [ -n "$APP" ]; then
   if ! bash "$REPO/scripts/build-app.sh" "$APPS_DIR" >>"$LOG" 2>&1; then
     rollback
     bash "$REPO/scripts/build-app.sh" "$APPS_DIR" >>"$LOG" 2>&1
-    die "could not rebuild the app — put back $FROM_V"
+    die "could not rebuild the app${NOT_RESTORED:- — put back $FROM_V}"
   fi
 fi
 
@@ -407,10 +430,7 @@ if ! launchctl print "gui/$(id -u)/com.jobseeker.browser" >/dev/null 2>&1; then
 fi
 
 PCT=90; status restarting 90
-if [ -n "$APP" ] && [ "${JOBSEEKER_NO_LAUNCH:-}" != "1" ]; then
-  say "reopening $APP"
-  open "$APP" 2>/dev/null
-fi
+reopen
 
 # The app reopening runs its own `start` step, which brings the dashboard back. Wait for it to say
 # it is the new version -- that, not the absence of an error, is what "updated" means.

@@ -43,6 +43,10 @@ printf "\n  ${BOLD}JobSeeker${OFF}\n\n"
 command -v osacompile >/dev/null 2>&1 || die "osacompile is missing — that should not happen on macOS."
 command -v curl >/dev/null 2>&1 || die "curl is missing — that should not happen on macOS."
 
+# A developer's checkout is updated with git. Replacing its tree would throw away uncommitted work,
+# so refuse before anything is downloaded or changed.
+[ -e "$HOME_DIR/.git" ] && die "$HOME_DIR is a git checkout — update it with git pull."
+
 # ---------------------------------------------------------------- 2. fetch the source
 TMP="$(mktemp -d)" || die "could not create a temporary folder"
 trap 'rm -rf "$TMP"' EXIT
@@ -61,21 +65,45 @@ tar xzf "$TMP/src.tar.gz" -C "$TMP/src" --strip-components=1 \
 [ -f "$TMP/src/server/dashboard.mjs" ] || die "the download is missing files it should have."
 
 # ---------------------------------------------------------------- 3. install the source
-# data/ and config/ are the user's, not ours. An update replaces code and leaves those alone --
-# this is a job search someone may have been running for months.
-if [ -d "$HOME_DIR" ]; then
+# An update replaces code and leaves the user's files alone -- this is a job search someone may
+# have been running for months. Same rule, same keep-lists, as scripts/self-update.sh:
+#   data/ config/ templates/ .claude/  are MIXED -- the user's files live beside the project's. Only
+#                                      the entries the download carries are replaced inside them.
+#   .git node_modules .env* .data ...  are left alone entirely.
+#   everything else                    is replaced wholesale, so a file deleted upstream really goes.
+# Only a folder that already holds a JobSeeker is treated this way. Anything else is copied into
+# and nothing in it is deleted.
+if [ -f "$HOME_DIR/package.json" ]; then
   step "Updating the copy already in $HOME_DIR"
-  for keep in data config templates; do
-    [ -d "$HOME_DIR/$keep" ] && rm -rf "$TMP/src/$keep"
+  KEEP_WHOLE=" .git node_modules .data .jobseeker.json .DS_Store "
+  KEEP_MIXED=" data config templates .claude "
+  for entry in "$HOME_DIR"/* "$HOME_DIR"/.[!.]*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name="$(basename "$entry")"
+    case "$name" in .env*) continue ;; esac
+    case "$KEEP_WHOLE$KEEP_MIXED" in *" $name "*) continue ;; esac
+    rm -rf "${HOME_DIR:?}/${name:?}" || die "could not replace $name in $HOME_DIR"
   done
-  # Anything not preserved above is replaced wholesale, so a deleted file upstream really goes.
-  ( cd "$TMP/src" && find . -type d -exec mkdir -p "$HOME_DIR/{}" \; ) 2>/dev/null
-  ( cd "$TMP/src" && find . -type f -exec cp -f "{}" "$HOME_DIR/{}" \; ) 2>/dev/null
+  for entry in "$TMP/src"/* "$TMP/src"/.[!.]*; do
+    [ -e "$entry" ] || continue
+    name="$(basename "$entry")"
+    case "$KEEP_WHOLE$KEEP_MIXED" in *" $name "*) continue ;; esac
+    cp -R "$entry" "$HOME_DIR/$name" || die "could not write to $HOME_DIR"
+  done
+  for k in data config templates .claude; do
+    [ -d "$TMP/src/$k" ] || continue
+    mkdir -p "$HOME_DIR/$k"
+    for entry in "$TMP/src/$k"/* "$TMP/src/$k"/.[!.]*; do
+      [ -e "$entry" ] || continue
+      name="$(basename "$entry")"
+      rm -rf "${HOME_DIR:?}/$k/${name:?}"
+      cp -R "$entry" "$HOME_DIR/$k/$name" || die "could not write to $HOME_DIR/$k"
+    done
+  done
   ok "updated (your data and settings were left alone)"
 else
   step "Installing to $HOME_DIR"
-  mkdir -p "$(dirname "$HOME_DIR")"
-  cp -R "$TMP/src" "$HOME_DIR" || die "could not write to $HOME_DIR"
+  mkdir -p "$HOME_DIR" && cp -R "$TMP/src/." "$HOME_DIR/" || die "could not write to $HOME_DIR"
   ok "installed to $HOME_DIR"
 fi
 chmod +x "$HOME_DIR"/scripts/*.sh 2>/dev/null
