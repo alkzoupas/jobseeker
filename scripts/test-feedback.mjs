@@ -41,6 +41,10 @@ await fs.writeFile(
 const configFile = path.join(tmp, "job-seeker.config.md");
 await fs.writeFile(configFile, "name: Christos Ventouris\n");
 
+// A CV named after its owner, beside data/ where the real one lives.
+await fs.mkdir(path.join(tmp, "templates", "cv"), { recursive: true });
+await fs.writeFile(path.join(tmp, "templates", "cv", "Dimitra-Karavasili-CV.pdf"), "");
+
 const dict = await buildDictionary(data, configFile);
 const redact = (t, d = []) => redactAll(t, os.homedir(), d);
 
@@ -53,6 +57,15 @@ ok(
 ok("company names from data/markets are masked", !redact("Sophos rejected the fetch", dict).includes("Sophos"));
 ok("contact names from data/contacts are masked", !redact("emailed Amanda Whitfield", dict).includes("Amanda"));
 ok("the user's own name is masked", !redact("signed as Christos Ventouris", dict).includes("Ventouris"));
+ok("the name in the CV's filename is masked", !redact("Parsing Dimitra-Karavasili-CV.pdf", dict).includes("Karavasili"));
+ok("a Bearer token is masked whole", !redact("Authorization: Bearer abc.def-123").includes("abc.def"));
+ok("a WhatsApp link's number is masked", !redact("open https://wa.me/306941234567 now").includes("3069"));
+ok("a LinkedIn profile link is masked", !redact("see linkedin.com/in/jane-doe-12 |").includes("jane-doe"));
+ok(
+  "ignored chats and aliases in the settings are masked",
+  !/family|oldco/.test(redact("port: 1\nignored_chats: family group, padel\ncompany_aliases: oldco=NewCo\n")) &&
+    redact("ignored_chats:\nnext: 1").includes("next: 1")
+);
 ok("email addresses are masked", redact("to ventouris@gmail.com now").includes("<redacted-email>"));
 ok("phone numbers are masked", redact("rang +30 694 123 4567 twice").includes("<redacted-phone>"));
 ok("token=... in a URL is masked", redact("GET https://x.test/a?token=abc123").includes("<redacted>"));

@@ -129,6 +129,16 @@ export async function buildDictionary(dataDir, configFile) {
     }
   }
 
+  // The user's own name is stored nowhere in data/, but a CV is nearly always named after its
+  // owner, and that filename turns up in the parse log and the folder listing.
+  try {
+    for (const f of await fs.readdir(path.join(dataDir, "..", "templates", "cv"))) {
+      add(f.replace(/\.[^.]+$/, "").replace(/[-_.]+/g, " "));
+    }
+  } catch {
+    /* no CV uploaded yet */
+  }
+
   const cfg = await readSafe(configFile);
   for (const m of cfg.matchAll(/^\s*[-*]?\s*(?:name|full_name|company|employer)\s*:\s*(.+)$/gim)) {
     add(m[1].replace(/["']/g, ""));
@@ -169,7 +179,15 @@ export function redactPatterns(text, home = "") {
     // Provider keys announce themselves with a prefix and are not otherwise long-hex, so the rule
     // above walks straight past them.
     .replace(/\b(?:sk|pk|ghp|gho|ghu|ghs|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b/g, "<redacted-token>")
+    // An Authorization value is two words ("Bearer abc"), and the rule below stops at the first.
+    .replace(/(authorization"?\s*[:=]\s*"?)[^\n",}]+/gi, "$1<redacted>")
     .replace(/(token|secret|key|password|authorization)("?\s*[:=]\s*"?)[^\s",}]+/gi, "$1$2<redacted>")
+    // A chat link carries the phone number, and a profile link the person, after a slash — which
+    // is exactly where the phone rule below is told not to look.
+    .replace(/\b(wa\.me\/|linkedin\.com\/in\/)[^\s"'<>)|]+/gi, "$1<redacted>")
+    // Private chat names and employer aliases, as the settings file lists them. Lower-case words
+    // mostly, so the name dictionary would not catch them.
+    .replace(/^(\s*(?:ignored_chats|company_aliases):[^\S\n]*)\S.*$/gim, "$1<redacted>")
     // A phone number: nine digits or more, with nothing word-like or dotted pressed against either
     // end. That last part is what keeps version strings, ports, byte counts and PIDs out of it.
     .replace(/(^|[^\w./])(\+?\d[\d\s()-]{7,}\d)(?![\w./])/g, (m, pre, num) =>
