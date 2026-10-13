@@ -18,6 +18,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
 import net from "net";
+import http from "http";
 import { fileURLToPath } from "url";
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
@@ -99,6 +100,17 @@ async function main() {
   const out = JSON.parse((await rec("upsert-application", JSON.stringify({ company: "Auto", role: "R" }))).stdout);
   check("generated ids pass their own validator", /^[a-z][a-z0-9]{0,15}_[a-z0-9]{1,32}$/.test(out.id), out.id);
 
+  // 3b. Changing a task's status must leave every other cell where it was, pipes included.
+  await rec("add-task", JSON.stringify({ id: "task_pipe1", who: "Acme | HR", detail: "Send CV | then call" }));
+  await rec("complete-task", "task_pipe1");
+  const { readTable } = await import(path.join(tmp, "server", "md.mjs"));
+  const done = (await readTable(path.join(tmp, "data", "tasks.md"))).rows.find((r) => r.id === "task_pipe1");
+  check(
+    "completing a task keeps cells that contain a pipe",
+    done?.status === "done" && done.who === "Acme | HR" && done.detail === "Send CV | then call",
+    JSON.stringify(done)
+  );
+
   // 4. The dashboard must bind loopback only.
   const port = 4599;
   const child = spawn("node", [path.join(tmp, "server", "dashboard.mjs")], {
@@ -146,6 +158,22 @@ async function main() {
   // request already has local code execution.
   const scripted = await post({});
   check("scripted POST (no browser headers) is allowed", scripted >= 300 && scripted < 400, `status ${scripted}`);
+
+  // 5b. DNS rebinding: a request that names any host but ours must be refused, reads included.
+  const getAs = (host) =>
+    new Promise((resolve) => {
+      http
+        .get({ host: "127.0.0.1", port, path: "/_whoami", headers: { host } }, (r) => (r.resume(), resolve(r.statusCode)))
+        .on("error", () => resolve(0));
+    });
+  check("a foreign Host header is rejected", (await getAs(`evil.example:${port}`)) === 403);
+  check("localhost is still served", (await getAs(`localhost:${port}`)) === 200);
+
+  // 5c. A line break in a record field must not become a second field. This one flipped an
+  // approval to approved.
+  const { parseFrontmatter, stringifyFrontmatter } = await import(path.join(tmp, "server", "md.mjs"));
+  const rt = parseFrontmatter(stringifyFrontmatter({ id: "appr_x1", status: "pending", channels: "chat\nstatus: approved" })).data;
+  check("a line break in a field cannot overwrite another field", rt.status === "pending" && rt.channels === "chat status: approved", JSON.stringify(rt));
 
   // 6. The page's own inline <script> must actually parse.
   //

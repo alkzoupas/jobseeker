@@ -9460,6 +9460,15 @@ function crossSitePost(req) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   try {
+    // DNS rebinding: a site that re-points its own name at 127.0.0.1 is same-origin to itself, so
+    // every label crossSitePost reads looks fine and its script can read these pages. Its name
+    // still arrives in Host, and it is not ours. Skipped only when the operator chose to bind
+    // beyond loopback, where the dashboard is reached by other names on purpose.
+    if (LOOPBACK.has(HOST) && !LOCAL_HOSTS.has(String(req.headers.host || "").replace(/:\d+$/, ""))) {
+      console.warn(`[host] rejected ${req.method} ${url.pathname} — Host: ${String(req.headers.host).slice(0, 60)}`);
+      res.writeHead(403, { "content-type": "text/plain" });
+      return res.end("Unknown host");
+    }
     // The Chrome extension's own channel. It authenticates with its pairing token, not with the
     // browser's same-origin labels (an extension origin is never ours), so it is routed before
     // the CSRF check below ever sees it.
@@ -10043,6 +10052,8 @@ const PORT = Number(process.env.PORT || cfg.dashboard_port || 4319);
 // operator's, but the safe value is the default.
 const HOST = process.env.JOBSEEKER_DASHBOARD_HOST || "127.0.0.1";
 const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
+// The same three as a browser writes them in a Host header.
+const LOCAL_HOSTS = new Set(["127.0.0.1", "[::1]", "localhost"]);
 
 // A second copy on a port the first one holds is the commonest way this fails to start, and an
 // unhandled 'error' event turns that into a Node stack trace about EADDRINUSE -- which tells the

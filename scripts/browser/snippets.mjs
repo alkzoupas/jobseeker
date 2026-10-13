@@ -177,9 +177,13 @@ export async function withOwnedTab(url, fn) {
     await waitForLoad(tab);
     return await fn(tab);
   } finally {
-    // Close by URL match rather than by index: the user may have opened or closed tabs while we
-    // worked, and closing a stale index would close one of THEIR tabs.
-    await d.closeTabsByUrl(url).catch(() => {});
+    // By id: a URL match also closes the user's own tabs on that site, and misses ours after a
+    // redirect. The URL close is only for a bridge extension too old to know closeTab.
+    try {
+      await d.closeTab(tab);
+    } catch {
+      await d.closeTabsByUrl(url).catch(() => {});
+    }
   }
 }
 

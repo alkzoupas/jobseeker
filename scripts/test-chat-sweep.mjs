@@ -138,6 +138,18 @@ async function main() {
     check("an unknown channel reads nothing and clicks nothing", !called && res.read === 0);
   }
 
+  // A day-only label must resolve AFTER a sweep made earlier that same day, or a message that
+  // arrived later that day and was read on the phone is never picked up.
+  {
+    const { parseListTime } = await import("./chat-sweep.mjs");
+    const now = new Date(2026, 9, 13, 8, 0, 40); // Tuesday 08:00:40
+    const mark = new Date(2026, 9, 12, 8, 1, 10); // Monday's sweep finished 08:01:10
+    for (const label of ["Yesterday", "Monday", "Oct 12", "10/12/2026"]) {
+      check(`"${label}" is newer than a sweep made that morning`, parseListTime(label, now) > mark);
+    }
+    check('"Sunday" is still older than Monday\'s sweep', parseListTime("Sunday", now) < mark);
+  }
+
   console.log(failures === 0 ? "\nPASS\n" : `\nFAIL — ${failures} check(s) failed\n`);
   process.exit(failures === 0 ? 0 : 1);
 }

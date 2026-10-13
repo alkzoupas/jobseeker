@@ -168,7 +168,7 @@ EOF
 
 notify() { # title, message — best-effort desktop alert; never fatal.
   command -v osascript >/dev/null 2>&1 &&
-    osascript -e "display notification \"$2\" with title \"$1\"" >/dev/null 2>&1 || true
+    osascript -e 'on run a' -e 'display notification (item 2 of a) with title (item 1 of a)' -e 'end run' "$1" "$2" >/dev/null 2>&1 || true
 }
 
 # Portable timeout: GNU `timeout` is not on macOS by default, and launchd's PATH is minimal even
@@ -238,7 +238,9 @@ COST_FILE="$(mktemp)"
 DENIED_FILE="$(mktemp)"
 # Single EXIT trap for both cleanups — a second `trap ... EXIT` would silently REPLACE this one
 # rather than add to it, which is exactly how the caffeinate release would have gone missing.
-trap 'rm -f "$COST_FILE" "$DENIED_FILE"; [ -n "$CAFFEINATE_PID" ] && kill "$CAFFEINATE_PID" 2>/dev/null' EXIT
+RUN_LOCK="$REPO/data/.run-now.lock"
+HOLDS_RUN_LOCK=""
+trap 'rm -f "$COST_FILE" "$DENIED_FILE"; [ -n "$HOLDS_RUN_LOCK" ] && rm -f "$RUN_LOCK"; [ -n "$CAFFEINATE_PID" ] && kill "$CAFFEINATE_PID" 2>/dev/null' EXIT
 
 # ---- spend caps -------------------------------------------------------------------------------
 # Read from config/job-seeker.config.md so the dashboard owns them. Falls back to a sane per-run cap
@@ -260,6 +262,21 @@ MONTH_CAP="$(read_cfg max_spend_per_month_usd)"
 # Stamped before the ceiling gate, because a refused run still writes a status file and that file
 # needs a start time like any other.
 STARTED="$(iso_now)"
+
+# ---- run lock ---------------------------------------------------------------------------------
+# The same file scripts/lib/claude-run.sh takes for the dashboard's runs: one run drives Chrome at
+# a time, and the Update button reads it before swapping the code. A manual run arrives here from
+# run-now.sh already holding it. No status is written on a skip, so the cadence gate above does
+# not count it as a run.
+if [ "$JOBRUN_SOURCE" = "scheduled" ]; then
+  if [ -r "$RUN_LOCK" ] && read -r lock_pid lock_slug _ < "$RUN_LOCK" && kill -0 "$lock_pid" 2>/dev/null; then
+    echo "skipped: another run ($lock_slug, pid $lock_pid) is in progress — Chrome can only be driven by one run at a time"
+    "$NODE_BIN" "$REPO/server/record.mjs" log run-skipped "scheduled run not started: $lock_slug was already running" >/dev/null 2>&1
+    exit 0
+  fi
+  printf '%s %s %s\n' "$$" job-run "$STARTED" > "$RUN_LOCK"
+  HOLDS_RUN_LOCK=1
+fi
 
 # ---- monthly ceiling -------------------------------------------------------------------------
 # Checked BEFORE any work starts, because the point is to not spend the money. A blocked run is

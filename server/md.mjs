@@ -69,7 +69,9 @@ export function parseFrontmatter(text) {
 // Serialize back to `---` frontmatter + body. `order` optionally fixes key order.
 export function stringifyFrontmatter(data, body = "", order = null) {
   const keys = order ?? Object.keys(data);
-  const lines = keys.map((k) => `${k}: ${data[k] ?? ""}`);
+  // One line per key: a line break in a value would be read back as another key, or as the end of
+  // the block.
+  const lines = keys.map((k) => `${k}: ${String(data[k] ?? "").replace(/[\r\n]+/g, " ")}`);
   return `---\n${lines.join("\n")}\n---\n\n${(body ?? "").trim()}\n`;
 }
 

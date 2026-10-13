@@ -44,6 +44,7 @@ import {
   readTable,
   appendTableRow,
   sanitizeCell,
+  splitRow,
   newId,
   writeFileAtomic,
   assertSafeId,
@@ -552,18 +553,18 @@ async function setTaskStatus(id, status, note) {
   const lines = text.split("\n");
   const headerIdx = lines.findIndex((l) => /^\s*\|/.test(l));
   if (headerIdx === -1) throw new Error("No tasks table");
-  const headers = lines[headerIdx].replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+  const headers = splitRow(lines[headerIdx]);
   const idIdx = headers.indexOf("id");
   const stIdx = headers.indexOf("status");
   const detIdx = headers.indexOf("detail");
   let changed = false;
   for (let i = headerIdx + 2; i < lines.length; i++) {
     if (!/^\s*\|/.test(lines[i])) continue;
-    const cells = lines[i].replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+    const cells = splitRow(lines[i]);
     if (cells[idIdx] === id) {
       cells[stIdx] = status;
       if (note && detIdx >= 0) cells[detIdx] = `${cells[detIdx]} — ${sanitizeCell(note)}`;
-      lines[i] = `| ${cells.join(" | ")} |`;
+      lines[i] = `| ${cells.map(sanitizeCell).join(" | ")} |`;
       changed = true;
       break;
     }
