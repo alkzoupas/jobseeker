@@ -155,7 +155,7 @@ export const DISMISS_TAGS = {
   market: "Market no longer targeted",
 };
 
-async function ensureTable(file, template) {
+export async function ensureTable(file, template) {
   try {
     await fs.access(file);
   } catch {
@@ -164,7 +164,7 @@ async function ensureTable(file, template) {
   }
 }
 
-async function logActivity(type, detail) {
+export async function logActivity(type, detail) {
   const file = path.join(DATA, "activity.md");
   await ensureTable(file, "# Activity\n\n| timestamp | type | detail |\n|-----------|------|--------|\n");
   await appendTableRow(file, { timestamp: nowISO(), type, detail: sanitizeCell(detail) }, "top");
@@ -330,7 +330,7 @@ async function supersedeLead(leadId, appId, note) {
 // Apply a detected stage advance: move `status` to `pending_stage` (forward-only), fold the
 // evidence note into `next_action`, and clear the pending fields. Triggered by the dashboard's
 // one-click "Advance" button (or `advance-app-stage <id> [target-stage]`).
-async function advanceAppStage(id, targetOverride) {
+export async function advanceAppStage(id, targetOverride) {
   const dir = path.join(DATA, "applications");
   const existing = await readRecordDir(dir);
   const match = existing.find((r) => r.data.id === id);
@@ -358,14 +358,14 @@ async function advanceAppStage(id, targetOverride) {
 // Reject a detected stage advance. Clears the pending fields so it leaves the Today queue, and
 // RECORDS the rejection so an agent seeing the same evidence tomorrow does not raise it again.
 // The note is optional by design — forcing a reason just produces empty reasons.
-async function dismissAdvance(id, note) {
+export async function dismissAdvance(id, note) {
   const dir = path.join(DATA, "applications");
   const existing = await readRecordDir(dir);
   const match = existing.find((r) => r.data.id === id);
   if (!match) return { action: "not-found", id };
   const d = match.data;
   const stage = d.pending_stage;
-  if (!stage) return { action: "no-pending-stage", id };
+  if (!stage) return { action: "no-pending-stage", id, company: d.company };
   const merged = {
     ...d,
     last_update: today(),
@@ -381,7 +381,7 @@ async function dismissAdvance(id, note) {
     "advance-dismissed",
     `${merged.company} — ${merged.role}: declined the advance to ${stage}${note ? ` — ${note}` : " (no reason given)"}`
   );
-  return { action: "advance-dismissed", id, stage };
+  return { action: "advance-dismissed", id, stage, company: d.company };
 }
 
 async function upsertProposal(input) {
@@ -471,7 +471,7 @@ async function addCommunication(input) {
   return { action: "added", id };
 }
 
-async function addContact(input) {
+export async function addContact(input) {
   const file = path.join(DATA, "contacts.md");
   await ensureTable(file, "# Contacts\n\n| id | name | company | role | email | linkedin_url | notes |\n|----|------|---------|------|-------|--------------|-------|\n");
   const table = await readTable(file);
@@ -550,31 +550,43 @@ async function addApproval(input) {
   return { action: "created", id, file: `${id}.md` };
 }
 
-async function setTaskStatus(id, status, note) {
+// The one place a task row is rewritten, for the CLI and the dashboard alike. Returns how many
+// rows changed. `annotate` also appends the note to the row's detail, which is what complete-task
+// has always done with its evidence note.
+export async function setTaskStatusFor(ids, status, note = "", annotate = false) {
+  const wanted = new Set(ids);
+  if (!wanted.size || !status) return 0;
   const file = path.join(DATA, "tasks.md");
-  const text = await fs.readFile(file, "utf8");
+  // No tasks file yet is "nothing matched", not an error.
+  const text = await fs.readFile(file, "utf8").catch(() => "");
   const lines = text.split("\n");
   const headerIdx = lines.findIndex((l) => /^\s*\|/.test(l));
-  if (headerIdx === -1) throw new Error("No tasks table");
+  if (headerIdx === -1) return 0;
   const headers = splitRow(lines[headerIdx]);
   const idIdx = headers.indexOf("id");
   const stIdx = headers.indexOf("status");
   const detIdx = headers.indexOf("detail");
-  let changed = false;
+  if (idIdx === -1 || stIdx === -1) return 0;
+  const changed = [];
   for (let i = headerIdx + 2; i < lines.length; i++) {
     if (!/^\s*\|/.test(lines[i])) continue;
     const cells = splitRow(lines[i]);
-    if (cells[idIdx] === id) {
-      cells[stIdx] = status;
-      if (note && detIdx >= 0) cells[detIdx] = `${cells[detIdx]} — ${sanitizeCell(note)}`;
-      lines[i] = `| ${cells.map(sanitizeCell).join(" | ")} |`;
-      changed = true;
-      break;
-    }
+    if (!wanted.has(cells[idIdx])) continue;
+    cells[stIdx] = status;
+    if (annotate && note && detIdx >= 0) cells[detIdx] = `${cells[detIdx]} — ${note}`;
+    lines[i] = `| ${cells.map(sanitizeCell).join(" | ")} |`;
+    changed.push(cells[idIdx]);
   }
-  if (!changed) throw new Error(`Task not found: ${id}`);
-  await writeFileAtomic(file, lines.join("\n"));
-  await logActivity("task-" + status, `Task ${id} → ${status}${note ? " (" + note + ")" : ""}`);
+  if (changed.length) {
+    await writeFileAtomic(file, lines.join("\n"));
+    const what = changed.length === 1 ? `Task ${changed[0]}` : `${changed.length} tasks`;
+    await logActivity("task-" + status, `${what} → ${status}${note ? ` (${note})` : ""}`);
+  }
+  return changed.length;
+}
+
+async function setTaskStatus(id, status, note) {
+  if (!(await setTaskStatusFor([id], status, note, true))) throw new Error(`Task not found: ${id}`);
   return { action: status, id };
 }
 
@@ -588,6 +600,9 @@ async function setApprovalStatus(id, status, newPreview) {
     throw new Error(`Approval not found: ${id}`);
   }
   const { data, body } = parseFrontmatter(text);
+  if (status === "edited" && !String(newPreview ?? "").trim()) {
+    throw new Error(`edit-approval ${id} needs the edited text — nothing changed`);
+  }
   data.status = status;
   data.decided = nowISO();
   const finalBody = newPreview != null ? newPreview : body;
@@ -1078,9 +1093,9 @@ async function setWatermark(channel, timestamp, note) {
 const BOARDS_FILE = path.join(DATA, "boards.md");
 // `dismissed` holds the date a board was written off, or "" for a live one. A date rather than a
 // flag because "when did we give up on this" is the thing you actually want to know later.
-const BOARD_HEADERS = ["company", "market", "ats", "endpoint", "access", "volatile", "last_verified", "notes", "dismissed"];
+export const BOARD_HEADERS = ["company", "market", "ats", "endpoint", "access", "volatile", "last_verified", "notes", "dismissed"];
 const BOARD_ACCESS = new Set(["json", "html", "browser", "blocked", "none", "manual", "pending"]);
-const BOARDS_TEMPLATE =
+export const BOARDS_TEMPLATE =
   "# ATS / careers-board registry\n\n" +
   "One row per company: where its board is and whether a stateless run can read it. Written by\n" +
   "role-scout via `record.mjs upsert-board`, read via `get-board` / `list-boards`. Prose quirks\n" +
@@ -1089,7 +1104,7 @@ const BOARDS_TEMPLATE =
   "blocked = rejects scripts (403/500/TLS) · none = no board exists.\n\n" +
   `| ${BOARD_HEADERS.join(" | ")} |\n|${BOARD_HEADERS.map(() => "---").join("|")}|\n`;
 
-function boardKey(company) {
+export function boardKey(company) {
   return String(company || "")
     .toLowerCase()
     .replace(/\b(inc|llc|ltd|gmbh|corp|co|the|group|software|technologies|networks|security)\b/g, "")
@@ -1178,7 +1193,7 @@ async function setBoardDismissed(company, dismissed, reason = "") {
   return { action: dismissed ? "dismissed" : "restored", company: row.company };
 }
 
-async function upsertBoard(obj) {
+export async function upsertBoard(obj) {
   if (!obj?.company) throw new Error("upsert-board needs at least {company, access}");
   if (obj.access && !BOARD_ACCESS.has(obj.access)) {
     throw new Error(`access must be one of: ${[...BOARD_ACCESS].join(", ")}`);

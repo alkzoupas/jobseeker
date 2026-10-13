@@ -19,7 +19,6 @@ import {
   readTable,
   appendTableRow,
   sanitizeCell,
-  splitRow,
   newId,
   writeFileAtomic,
 } from "./md.mjs";
@@ -38,7 +37,17 @@ async function currentVersion() {
 }
 import { findRepost, setCompanyAliases} from "./match.mjs";
 import { companyAliases } from "./config.mjs";
-import { DISMISS_TAGS } from "./record.mjs";
+import {
+  DISMISS_TAGS,
+  boardKey,
+  ensureTable,
+  logActivity,
+  upsertBoard,
+  advanceAppStage,
+  dismissAdvance,
+  addContact,
+  setTaskStatusFor,
+} from "./record.mjs";
 import { buildBundle } from "./feedback.mjs";
 import { usageSnapshot } from "./usage.mjs";
 import { whatsappPluginState, whatsappFixSteps } from "./whatsapp-plugin.mjs";
@@ -682,27 +691,10 @@ const FEEDBACK_MODAL = `
   </div>
 </div>`;
 
-// The ATS/careers-board registry (see server/record.mjs and AGENT-RULES §12). Mirrored here rather
-// than shelling out to record.mjs: handlePost already holds the data/ lock, and record.mjs takes
-// the same lock at startup, so spawning it from inside a POST would deadlock until the timeout.
+// The ATS/careers-board registry (see AGENT-RULES §12). Its writes are record.mjs's own functions,
+// imported and called in-process: handlePost already holds the data/ lock, and SPAWNING record.mjs
+// from inside a POST would wait on that same lock until the timeout.
 const BOARDS_FILE = path.join(DATA, "boards.md");
-const BOARD_HEADERS = ["company", "market", "ats", "endpoint", "access", "volatile", "last_verified", "notes"];
-const BOARDS_TEMPLATE =
-  "# ATS / careers-board registry\n\n" +
-  "One row per company: where its board is and whether a stateless run can read it. Written by\n" +
-  "role-scout via `record.mjs upsert-board`, read via `get-board` / `list-boards`. Prose quirks\n" +
-  "(rotating tokens, SPA hazards) live in docs/boards.md.\n\n" +
-  "`access`: json = stateless JSON works · html = stateless HTML works · browser = needs Chrome ·\n" +
-  "blocked = rejects scripts (403/500/TLS) · none = no board exists · manual = URL you pasted, awaiting verification.\n\n" +
-  `| ${BOARD_HEADERS.join(" | ")} |\n|${BOARD_HEADERS.map(() => "---").join("|")}|\n`;
-
-function boardKey(company) {
-  return String(company || "")
-    .toLowerCase()
-    .replace(/\b(inc|llc|ltd|gmbh|corp|co|the|group|software|technologies|networks|security)\b/g, "")
-    .replace(/[^a-z0-9]+/g, "")
-    .trim();
-}
 
 // Access verdicts that mean "we could NOT read this company's board" — the ones worth surfacing to
 // the user, because a pasted URL is the only thing that unblocks them.
@@ -6637,16 +6629,10 @@ async function handleAddCompany(form) {
   const boards = await readTable(BOARDS_FILE);
   const known = boards.rows.find((r) => boardKey(r.company) === boardKey(company));
   if (!known) {
-    await ensureTable(BOARDS_FILE, BOARDS_TEMPLATE);
-    const text = await fs.readFile(BOARDS_FILE, "utf8");
-    const lines = text.split("\n");
-    const headerIdx = lines.findIndex((l) => /^\s*\|/.test(l));
-    const row = {
-      company, market, ats: "", endpoint: "", access: "pending", volatile: "no",
-      last_verified: today(), notes: `Added ${today()} from the dashboard; automatic board discovery in progress.`,
-    };
-    lines.splice(headerIdx + 2, 0, `| ${BOARD_HEADERS.map((h) => sanitizeCell(row[h])).join(" | ")} |`);
-    await writeFileAtomic(BOARDS_FILE, lines.join("\n"));
+    await upsertBoard({
+      company, market, access: "pending",
+      notes: `Added ${today()} from the dashboard; automatic board discovery in progress.`,
+    });
   }
 
   await logActivity(
@@ -6674,44 +6660,16 @@ async function handleAddCompany(form) {
 // The reason is deliberately optional — a mandatory field just produces empty reasons.
 async function handleDismissAdvance(form) {
   const id = String(form.id || "").trim();
-  const note = String(form.note || "").trim();
-  const dir = path.join(DATA, "applications");
-  const recs = await readRecordDir(dir);
-  const match = recs.find((r) => r.data.id === id);
-  if (!match) return { kind: "err", msg: `No application ${id}.` };
-  const stage = match.data.pending_stage;
-  if (!stage) return { kind: "err", msg: `${match.data.company} has no pending advance.` };
-  const merged = {
-    ...match.data,
-    last_update: today(),
-    pending_stage: "",
-    pending_note: "",
-    pending_since: "",
-    advance_dismissed_stage: stage,
-    advance_dismissed_date: today(),
-    advance_dismissed_note: note,
-  };
-  // Field order comes from the record itself, as every other dashboard writer does —
-  // APPLICATION_ORDER lives in record.mjs and is not in scope here.
-  await writeFileAtomic(path.join(dir, match.file), stringifyFrontmatter(merged, match.body, Object.keys(merged)));
-  await logActivity(
-    "advance-dismissed",
-    `${merged.company} — ${merged.role}: declined the advance to ${stage}${note ? ` — ${note}` : " (no reason given)"}`
-  );
-  return { kind: "ok", msg: `${merged.company}: advance to ${stage} dismissed — it will not be raised again.` };
+  const r = await dismissAdvance(id, String(form.note || "").trim());
+  if (r.action === "not-found") return { kind: "err", msg: `No application ${id}.` };
+  if (r.action === "no-pending-stage") return { kind: "err", msg: `${r.company} has no pending advance.` };
+  return { kind: "ok", msg: `${r.company}: advance to ${r.stage} dismissed — it will not be raised again.` };
 }
 
 // One handler for both the row trash icon and the batch button, so they cannot diverge in what
 // "removed" means.
-//
-// Writes the table directly rather than shelling out to record.mjs. The POST path already holds the
-// data/ lock and record.mjs takes the same lock on startup, so calling it from in here deadlocks
-// until the timeout -- exactly what the note at the top of this file warns about.
 async function handleDismissBoard(form) {
-  const text = await fs.readFile(BOARDS_FILE, "utf8");
-  const lines = text.split("\n");
-  const headerIdx = lines.findIndex((l) => /^\s*\|/.test(l));
-  const { headers, rows } = await readTable(BOARDS_FILE);
+  const { rows } = await readTable(BOARDS_FILE);
   const stamp = today();
 
   const targets =
@@ -6721,12 +6679,8 @@ async function handleDismissBoard(form) {
 
   if (!targets.length) throw new Error(form.scope === "none" ? "nothing to remove" : "no matching board row");
 
-  for (const r of targets) {
-    const i = rows.indexOf(r);
-    const merged = { ...r, dismissed: stamp };
-    lines[headerIdx + 2 + i] = `| ${headers.map((h) => sanitizeCell(merged[h] ?? "")).join(" | ")} |`;
-  }
-  await writeFileAtomic(BOARDS_FILE, lines.join("\n"));
+  // last_verified is passed back unchanged: removing a board is not a fresh look at it.
+  for (const r of targets) await upsertBoard({ company: r.company, dismissed: stamp, last_verified: r.last_verified });
 
   const what =
     form.scope === "none"
@@ -6742,7 +6696,6 @@ async function handleSetBoard(form) {
   const companyIn = String(form.company || "").trim();
   if (!companyIn) throw new Error("set-board needs a company");
   const endpoint = String(form.endpoint || "").trim();
-  await ensureTable(BOARDS_FILE, BOARDS_TEMPLATE);
   const { rows } = await readTable(BOARDS_FILE);
   const key = boardKey(companyIn);
   const idx = rows.findIndex((r) => boardKey(r.company) === key);
@@ -6767,13 +6720,7 @@ async function handleSetBoard(form) {
         }`
       : priorNote,
   };
-  const text = await fs.readFile(BOARDS_FILE, "utf8");
-  const lines = text.split("\n");
-  const headerIdx = lines.findIndex((l) => /^\s*\|/.test(l));
-  const row = `| ${BOARD_HEADERS.map((h) => sanitizeCell(merged[h])).join(" | ")} |`;
-  if (idx >= 0) lines[headerIdx + 2 + idx] = row;
-  else lines.splice(headerIdx + 2, 0, row);
-  await writeFileAtomic(BOARDS_FILE, lines.join("\n"));
+  await upsertBoard(merged);
   await logActivity(
     "board-manual",
     endpoint
@@ -8872,56 +8819,7 @@ async function handleSetAppStatus(form) {
 // into next_action, and clear the pending fields.
 async function handleAdvanceAppStage(form) {
   const id = (form.id ?? "").trim();
-  if (!id) return;
-  const dir = path.join(DATA, "applications");
-  const recs = await readRecordDir(dir);
-  const rec = recs.find((r) => r.data.id === id || r.id === id);
-  if (!rec) return;
-  const d = rec.data;
-  const target = (d.pending_stage || "").trim();
-  if (!target) return;
-  // forward-only: don't move backward if pending_stage ranks below current status
-  const newStatus = statusIndex(target) >= statusIndex(d.status) ? target : d.status;
-  const data = { ...d, status: newStatus, last_update: today(), next_action: d.pending_note || d.next_action || "", pending_stage: "", pending_note: "" };
-  await writeFileAtomic(path.join(dir, rec.file), stringifyFrontmatter(data, rec.body, Object.keys(data)));
-  await logActivity("stage-advance", `${data.company} — ${data.role} → ${newStatus} (confirmed via dashboard)`);
-}
-
-/**
- * Set `status` on every task whose id is in `ids`. Returns how many rows changed.
- *
- * Uses md.mjs's splitRow/sanitizeCell rather than a hand-rolled `.split("|")`. The previous version
- * split on raw pipes, so a task detail containing one would shift every later cell one column left
- * on rewrite — the identical corruption that misaligned seven board rows plus communications.md and
- * activity.md before splitRow existed. One row at a time it is easy to miss; a bulk action would
- * have multiplied it.
- */
-async function setTaskStatusFor(ids, status, note = "") {
-  const wanted = new Set(ids);
-  if (!wanted.size || !status) return 0;
-  const file = path.join(DATA, "tasks.md");
-  const text = await fs.readFile(file, "utf8");
-  const lines = text.split("\n");
-  const headerIdx = lines.findIndex((l) => /^\s*\|/.test(l));
-  if (headerIdx === -1) return 0;
-  const headers = splitRow(lines[headerIdx]);
-  const idIdx = headers.indexOf("id");
-  const stIdx = headers.indexOf("status");
-  if (idIdx === -1 || stIdx === -1) return 0;
-  let changed = 0;
-  for (let i = headerIdx + 2; i < lines.length; i++) {
-    if (!/^\s*\|/.test(lines[i])) continue;
-    const cells = splitRow(lines[i]);
-    if (!wanted.has(cells[idIdx])) continue;
-    cells[stIdx] = status;
-    lines[i] = `| ${cells.map((c) => sanitizeCell(c)).join(" | ")} |`;
-    changed++;
-  }
-  if (changed) {
-    await writeFileAtomic(file, lines.join("\n"));
-    await logActivity("task-" + status, `${changed} task(s) → ${status} (dashboard)${note ? ` — ${note}` : ""}`);
-  }
-  return changed;
+  if (id) await advanceAppStage(id);
 }
 
 // Start one of the job-search commands from the dashboard.
@@ -9382,18 +9280,9 @@ async function handleSetProposalStatus(form) {
 }
 
 async function handleAddContact(form) {
-  const file = path.join(DATA, "contacts.md");
-  await ensureTable(file, "# Contacts\n\n| id | name | company | role | email | linkedin_url | notes |\n|----|------|---------|------|-------|--------------|-------|\n");
-  await appendTableRow(file, {
-    id: newId("contact"),
-    name: sanitizeCell(form.name),
-    company: sanitizeCell(form.company),
-    role: sanitizeCell(form.role),
-    email: sanitizeCell(form.email),
-    linkedin_url: sanitizeCell(form.linkedin_url),
-    notes: sanitizeCell(form.notes),
-  });
-  await logActivity("contact-add", `Manual contact: ${sanitizeCell(form.name)}`);
+  const r = await addContact(form);
+  if (r.action === "added") await logActivity("contact-add", `Manual contact: ${sanitizeCell(form.name)}`);
+  return r;
 }
 
 async function handleUploadCV(req, url) {
@@ -9407,21 +9296,6 @@ async function handleUploadCV(req, url) {
   return dest;
 }
 
-
-async function ensureTable(file, template) {
-  try {
-    await fs.access(file);
-  } catch {
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, template, "utf8");
-  }
-}
-
-async function logActivity(type, detail) {
-  const file = path.join(DATA, "activity.md");
-  await ensureTable(file, "# Activity\n\n| timestamp | type | detail |\n|-----------|------|--------|\n");
-  await appendTableRow(file, { timestamp: nowISO(), type, detail: sanitizeCell(detail) }, "top");
-}
 
 // Reject cross-site POSTs.
 //
@@ -10034,8 +9908,8 @@ async function handlePost(req, res, url) {
     return redirect(res, r.flash);
   }
   if (url.pathname === "/add-contact") {
-    await handleAddContact(form);
-    return redirect(res, { kind: "ok", msg: "Contact added." });
+    const r = await handleAddContact(form);
+    return redirect(res, { kind: "ok", msg: r.action === "added" ? "Contact added." : "That contact is already on file." });
   }
   res.writeHead(404, { "content-type": "text/plain" });
   res.end("Not found");
