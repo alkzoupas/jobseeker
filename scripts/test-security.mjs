@@ -19,7 +19,7 @@ import path from "path";
 import os from "os";
 import net from "net";
 import http from "http";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 
@@ -103,7 +103,7 @@ async function main() {
   // 3b. Changing a task's status must leave every other cell where it was, pipes included.
   await rec("add-task", JSON.stringify({ id: "task_pipe1", who: "Acme | HR", detail: "Send CV | then call" }));
   await rec("complete-task", "task_pipe1");
-  const { readTable } = await import(path.join(tmp, "server", "md.mjs"));
+  const { readTable } = await import(pathToFileURL(path.join(tmp, "server", "md.mjs")).href);
   const done = (await readTable(path.join(tmp, "data", "tasks.md"))).rows.find((r) => r.id === "task_pipe1");
   check(
     "completing a task keeps cells that contain a pipe",
@@ -182,7 +182,7 @@ async function main() {
 
   // 5c. A line break in a record field must not become a second field. This one flipped an
   // approval to approved.
-  const { parseFrontmatter, stringifyFrontmatter } = await import(path.join(tmp, "server", "md.mjs"));
+  const { parseFrontmatter, stringifyFrontmatter } = await import(pathToFileURL(path.join(tmp, "server", "md.mjs")).href);
   const rt = parseFrontmatter(stringifyFrontmatter({ id: "appr_x1", status: "pending", channels: "chat\nstatus: approved" })).data;
   check("a line break in a field cannot overwrite another field", rt.status === "pending" && rt.channels === "chat status: approved", JSON.stringify(rt));
 

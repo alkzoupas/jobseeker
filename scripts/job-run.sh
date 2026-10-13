@@ -143,8 +143,10 @@ gaps_json() {
   "${NODE_BIN:-node}" "$REPO/server/audit.mjs" --gaps 2>/dev/null \
     | "${NODE_BIN:-node}" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
         try{ process.stdout.write(JSON.stringify(JSON.parse(s).gaps||[])); }
-        catch{ process.stdout.write("[]"); }})' 2>/dev/null \
-    || printf '[]'
+        catch{ process.stdout.write("[]"); }})' 2>/dev/null
+  # No `|| printf '[]'` here. Under pipefail a failed audit fails the whole pipeline even though
+  # the reader has already printed [], so the fallback made it "[][]" and the status file stopped
+  # being JSON. If nothing at all is printed, write_status supplies the [] itself.
 }
 
 write_status() { # state, attempts_used, detail, gaps_json

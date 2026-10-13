@@ -366,7 +366,14 @@ $KeepMixed = @("data", "config", "templates", ".claude")
 function Move-Retry([string]$from, [string]$to) {
   # Defender and the search indexer take brief handles on files that have just appeared.
   for ($i = 0; $i -lt 3; $i++) {
-    try { Move-Item -LiteralPath $from -Destination $to -Force; return $true } catch { Start-Sleep -Milliseconds 300 }
+    # A plain rename, which either happens or does not. Move-Item is not that: when the rename of a
+    # folder is refused (one file inside is open in another process), it quietly copies the folder
+    # across and deletes what it can of the original. That left half a folder on each side, with
+    # nothing recorded to undo, and a "rolled back" install whose server files were gone.
+    try {
+      if (Test-Path -LiteralPath $from -PathType Container) { [IO.Directory]::Move($from, $to) } else { [IO.File]::Move($from, $to) }
+      return $true
+    } catch { Start-Sleep -Milliseconds 300 }
   }
   return $false
 }
