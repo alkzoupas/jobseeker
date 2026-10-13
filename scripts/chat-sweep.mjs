@@ -272,11 +272,13 @@ const THREAD_DOM = {
     listSelector: '#pane-side [role="row"], #pane-side [role="listitem"]',
     nameSelector: "span[title]",
     messageSelector: ['#main div[role="row"]', '#main [data-testid="msg-container"]', "#main .message-in, #main .message-out"],
+    headerSelector: "#main header",
   },
   LinkedIn: {
     listSelector: 'li.msg-conversation-listitem, li[class*="conversation-listitem"]',
     nameSelector: '.msg-conversation-listitem__participant-names, [class*="participant-names"]',
     messageSelector: [".msg-s-event-listitem", '[class*="event-listitem"]'],
+    headerSelector: '.msg-title-bar, [class*="msg-entity-lockup__entity-title"]',
   },
 };
 
@@ -309,7 +311,7 @@ export async function readThreads({ ctx, source, tab, chats, limit = 12 }) {
     // and trimming here would trim the WRONG end — the store-side slice cuts from the front, so the
     // most recent messages, the ones that say what was agreed, are exactly what would be lost.
     const body = await ctx
-      .openConversation(tab, { ...dom, name: c.name, index: idx, max: 1300 })
+      .openConversation(tab, { ...dom, source, name: c.name, index: idx, max: 1300 })
       .catch(() => null);
     if (body && body.text) {
       c.thread_text = body.text;

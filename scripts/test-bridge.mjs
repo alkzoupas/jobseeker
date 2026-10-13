@@ -82,6 +82,10 @@ async function main() {
   r = await post("/bridge/pair", { code: "000000" }, { origin: EXT });
   check("pair with no code minted -> 403", r.status === 403, `got ${r.status}`);
 
+  // An earlier pairing, so the one below is a RE-pairing: its token must be new and the old one dead.
+  const earlier = await bridge.mintPairingCode();
+  const oldToken = (await (await post("/bridge/pair", { code: earlier.code }, { origin: EXT })).json()).token;
+
   const pairing = await bridge.mintPairingCode();
   check("mintPairingCode writes .bridge.pair.json", JSON.parse(await fs.readFile(path.join(tmp, ".bridge.pair.json"), "utf8")).code === pairing.code);
   check("status() exposes the live pairing code", bridge.status().pairing?.code === pairing.code);
@@ -122,6 +126,9 @@ async function main() {
 
   // Poll auth.
   const auth = { authorization: `Bearer ${token}`, origin: EXT };
+  check("pairing again gives a new token", /^[0-9a-f]{64}$/.test(oldToken || "") && oldToken !== token);
+  r = await api("/bridge/poll", { headers: { authorization: `Bearer ${oldToken}`, origin: EXT } });
+  check("…and the earlier token stops working", r.status === 403, `got ${r.status}`);
   r = await api("/bridge/poll");
   check("poll without token -> 403", r.status === 403, `got ${r.status}`);
   r = await api("/bridge/poll", { headers: { authorization: `Bearer ${"0".repeat(64)}`, origin: EXT } });

@@ -167,7 +167,17 @@ function linkedinChatList() {
  */
 function openConversationClick(args) {
   try {
-    var items = document.querySelectorAll(args.listSelector);
+    /* The two chat lists are named HERE, not taken from the caller: a selector supplied over the
+       bridge would make this a click on anything, for anyone holding the token. Declared inside
+       the function because only the function itself is sent to the page. */
+    var lists = {
+      WhatsApp: { list: '#pane-side [role="row"], #pane-side [role="listitem"]', name: 'span[title]' },
+      LinkedIn: { list: 'li.msg-conversation-listitem, li[class*="conversation-listitem"]',
+                  name: '.msg-conversation-listitem__participant-names, [class*="participant-names"]' }
+    };
+    var dom = Object.prototype.hasOwnProperty.call(lists, args.source) ? lists[args.source] : null;
+    if (!dom) return JSON.stringify({ error: 'unknown chat surface' });
+    var items = document.querySelectorAll(dom.list);
     var want = args.name || '';
     var el = null;
     /* Prefer matching by NAME. Both chat lists virtualise: scrolling re-renders the rows, so an
@@ -177,13 +187,15 @@ function openConversationClick(args) {
        sent to Apple Events, so a line comment would silently comment out everything after it. */
     if (want) {
       for (var i = 0; i < items.length && !el; i++) {
-        var t = items[i].querySelector(args.nameSelector || 'span[title]');
+        var t = items[i].querySelector(dom.name);
         var got = t ? (t.getAttribute('title') || t.textContent || '').trim() : '';
         if (got === want) el = items[i];
       }
     }
-    if (!el) el = items[Number(args.index)];
-    if (!el) return JSON.stringify({ error: 'conversation not found (name/index both missed)' });
+    /* No fallback to the row number when a name was given and is not there. After a scroll that
+       number belongs to some other conversation, and it may be an unread one. */
+    if (!el && !want) el = items[Number(args.index)];
+    if (!el) return JSON.stringify({ error: 'conversation not found' });
 
     el.scrollIntoView({ block: 'center' });
     var r = el.getBoundingClientRect();
@@ -223,6 +235,17 @@ function readThreadMessages(args) {
        selector. Combining them double-counts: on the current WhatsApp a message matches both
        'div[role="row"]' and its nested '[data-testid="msg-container"]', so every message was
        logged twice. Keeping the older generations still guards against the next DOM rotation. */
+    /* The click reports success whether or not a thread opened. If the pane's header is there and
+       names someone else, what is open is another conversation (the user's own, left open), and
+       reading it would file their words under this contact. A header we cannot find proves
+       nothing either way, so only a visible mismatch refuses. */
+    if (args.expect && args.headerSelector) {
+      var head = document.querySelector(args.headerSelector);
+      var shown = head ? (head.innerText || '').toLowerCase() : '';
+      if (shown && shown.indexOf(String(args.expect).toLowerCase()) === -1) {
+        return JSON.stringify({ error: 'a different conversation is open' });
+      }
+    }
     var gens = Array.isArray(args.messageSelector) ? args.messageSelector : [args.messageSelector];
     var nodes = [];
     for (var g = 0; g < gens.length && nodes.length === 0; g++) {

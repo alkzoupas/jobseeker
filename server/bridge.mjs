@@ -380,7 +380,11 @@ export function createBridge({
     ext = { extensionId: origin, pairedAt: new Date(now).toISOString() };
     await writeAtomic(path.join(dataDir, EXT_FILE), JSON.stringify(ext), 0o600);
     lastSeen = 0; // a new pairing starts unconnected until it polls
-    json(res, 200, { token: await getToken() });
+    // A new pairing gets a new token, so pairing again is also how an old one is revoked: a
+    // profile paired earlier, or a token that leaked, stops working here.
+    token = crypto.randomBytes(32).toString("hex");
+    await writeAtomic(path.join(dataDir, TOKEN_FILE), token + "\n", 0o600);
+    json(res, 200, { token });
   }
 
   async function routePoll(req, res) {

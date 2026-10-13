@@ -150,9 +150,11 @@ export async function assertCanReadContent(tabs) {
  */
 export async function openConversation(
   tab,
-  { listSelector, nameSelector, name, index, messageSelector, waitMs = 2500, max = 8000 }
+  { source, listSelector, nameSelector, headerSelector, name, index, messageSelector, waitMs = 2500, max = 8000 }
 ) {
   const clicked = await snippetJson(tab, "openConversationClick", {
+    source,
+    // Still sent for a bridge extension installed before the snippet named the lists itself.
     listSelector,
     nameSelector: nameSelector || "span[title]",
     name: name || "",
@@ -160,7 +162,12 @@ export async function openConversation(
   });
   if (!clicked || clicked.error) return null;
   await new Promise((r) => setTimeout(r, waitMs));
-  const body = await snippetJson(tab, "readThreadMessages", { messageSelector, max: Number(max) });
+  const body = await snippetJson(tab, "readThreadMessages", {
+    messageSelector,
+    headerSelector,
+    expect: name || "",
+    max: Number(max),
+  });
   if (!body || body.error || !body.messages) return null;
   return body;
 }
