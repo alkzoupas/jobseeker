@@ -44,10 +44,20 @@ async function agentInstalled() {
   return r.ok;
 }
 
+// The same four actions scripts/browser-agent.sh accepts.
+const SCRIPTS = {
+  probe: "browser-probe.mjs",
+  "chat-sweep": "chat-sweep.mjs",
+  "read-url": "browser-read.mjs",
+  "board-sweep": "board-sweep.mjs",
+};
+
 async function main() {
   const [action, ...args] = process.argv.slice(2);
-  if (!action) {
-    process.stderr.write("usage: browser-do.mjs <probe|chat-sweep> [args...]\n");
+  // Checked before either path. A typo used to fall through to a live chat sweep, which writes
+  // rows and moves the watermark.
+  if (!SCRIPTS[action]) {
+    process.stderr.write(`usage: browser-do.mjs <${Object.keys(SCRIPTS).join("|")}> [args...]\n`);
     process.exit(64);
   }
 
@@ -61,9 +71,7 @@ async function main() {
           `            Install once with: bash scripts/install-browser-agent.sh\n`
       );
     }
-    const script =
-      { probe: "browser-probe.mjs", "read-url": "browser-read.mjs", "board-sweep": "board-sweep.mjs" }[action] ||
-      "chat-sweep.mjs";
+    const script = SCRIPTS[action];
     const r = await sh(process.execPath, [path.join(ROOT, "scripts", script), ...args]);
     process.stdout.write(r.out);
     if (r.err) process.stderr.write(r.err);

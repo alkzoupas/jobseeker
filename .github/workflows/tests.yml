@@ -37,6 +37,8 @@ jobs:
       # agents, neither of which may touch the machine running the tests.
       - run: npm run test:runstate
       - run: npm run test:update
+      - run: npm run test:scratch
+      - run: npm run test:feedback
 
   windows:
     runs-on: windows-latest
@@ -57,6 +59,7 @@ jobs:
       # Task Scheduler task, isolated to JobSeeker\JobRunTest and unregistered in its own cleanup.
       - run: npm run test:welcome
       - run: npm run test:runstate
+      - run: npm run test:scratch
 
       # PowerShell 5.1 and 7 do not share a parser, and 5.1 is the only host a stock Windows 10/11
       # is guaranteed to have — the one the installer and the scheduled task actually run under. A

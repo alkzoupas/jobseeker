@@ -87,6 +87,9 @@ function appKey(company, role) {
 function mergeStatus(current, incoming) {
   if (!current) return incoming;
   if (!incoming) return current;
+  // A lead the user dismissed stays dismissed when a tracker merely sees it again ("Saved"). Real
+  // progress — Applied and beyond — still brings it back.
+  if (String(current).toLowerCase() === "dismissed" && !(STATUS_RANK[incoming] > 0)) return current;
   if ((STATUS_RANK[incoming] ?? 0) >= (STATUS_RANK[current] ?? 0)) return incoming;
   return current;
 }

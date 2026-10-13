@@ -625,13 +625,6 @@ let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
     Log "spend NOT recorded — no cost returned (crash, timeout, or non-JSON response)"
   }
 
-  # A run that dies mid-write leaves the advisory lock behind; it self-heals after 60s (see
-  # server/lock.mjs) but clearing it here means the dashboard is responsive immediately.
-  $lockPath = Join-Path $REPO "data\.lock"
-  if ($rc -ne 0 -and (Test-Path $lockPath)) {
-    Log "clearing stale data/.lock left by the failed run"
-    Remove-Item $lockPath -Recurse -Force -ErrorAction SilentlyContinue
-  }
 
   # Report the attempt actually USED ($attempt, which survives the loop), not the configured
   # maximum. Passing $ATTEMPTS made a first-try success read as "attempts: 2" — indistinguishable

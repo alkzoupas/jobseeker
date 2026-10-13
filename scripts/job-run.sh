@@ -461,13 +461,6 @@ write_status "running" 0 "in progress"
     fi
 
 
-  # A run that dies mid-write leaves the advisory lock behind; it self-heals after 60s (see
-  # server/lock.mjs) but clearing it here means the dashboard is responsive immediately.
-  if [ $rc -ne 0 ] && [ -e "$REPO/data/.lock" ]; then
-    echo "clearing stale data/.lock left by the failed run"
-    rm -rf "$REPO/data/.lock"
-  fi
-
   # Report the attempt actually USED ($attempt, which survives the loop), not the configured
   # maximum. Passing $ATTEMPTS made a first-try success read as "attempts: 2" — indistinguishable
   # from a run that needed its retry, which is exactly the signal this file exists to carry.

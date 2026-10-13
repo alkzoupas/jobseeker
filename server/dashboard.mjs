@@ -8500,8 +8500,9 @@ async function orphanedProposals() {
     const m = marketKey(p.data.market);
     // A proposal with no market recorded is not evidence of a dropped vertical — it is just an
     // untagged row, and dismissing it here would be a guess.
+    // Applied roles are history, not live suggestions: clearing them would file them as dismissed.
     if (!m) return false;
-    return !wanted.has(m) && String(p.data.status || "proposed").toLowerCase() !== "dismissed";
+    return !wanted.has(m) && !/^(dismissed|applied)$/i.test(String(p.data.status || ""));
   });
   const byMarket = {};
   for (const p of hit) {
@@ -8523,7 +8524,7 @@ async function criteriaImpact(nextMarkets) {
   const hit = proposals.filter(
     (p) =>
       removedKeys.has(marketKey(p.data.market)) &&
-      String(p.data.status || "proposed").toLowerCase() !== "dismissed"
+      !/^(dismissed|applied)$/i.test(String(p.data.status || ""))
   );
   const byMarket = {};
   for (const p of hit) {
@@ -9714,6 +9715,8 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("Not found");
   } catch (e) {
+    // A second writeHead would throw from inside this handler and take the whole process down.
+    if (res.headersSent) return res.end();
     res.writeHead(500, { "content-type": "text/plain" });
     res.end("Error: " + (e?.message || e));
   }

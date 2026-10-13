@@ -111,6 +111,17 @@ async function main() {
     JSON.stringify(done)
   );
 
+  // 3c. A dismissed lead stays dismissed when a tracker merely sees it again, and comes back on
+  // real progress.
+  const lead = { company: "Stickyco", role: "Lead role" };
+  const statusOf = async () =>
+    (await fs.readFile(path.join(tmp, "data", "applications", "app_sticky1.md"), "utf8")).match(/^status: (.*)$/m)?.[1];
+  await rec("upsert-application", JSON.stringify({ ...lead, id: "app_sticky1", status: "Dismissed" }));
+  await rec("upsert-application", JSON.stringify({ ...lead, status: "Saved" }));
+  check("a dismissed lead is not revived by a re-sighting", (await statusOf()) === "Dismissed", await statusOf());
+  await rec("upsert-application", JSON.stringify({ ...lead, status: "Applied" }));
+  check("…but real progress still revives it", (await statusOf()) === "Applied", await statusOf());
+
   // 4. The dashboard must bind loopback only.
   const port = 4599;
   const child = spawn("node", [path.join(tmp, "server", "dashboard.mjs")], {

@@ -193,6 +193,20 @@ async function main() {
     check("a failing sweep still closes its tab", threw && state.closed.length === 1);
   }
 
+  // A navigation that never commits (a host that blackholes the connection) must not be read as
+  // the previous page. The stuck tab is given up and a fresh one opened. Takes the full 15s wait.
+  {
+    const { driver, state, visitAndRead } = fakeChrome({ lagTicks: Infinity });
+    setDriver(driver);
+    let saw;
+    await withScratchTab(async ({ visit }) => {
+      await visitAndRead(visit, URLS[0]);
+      saw = (await visitAndRead(visit, URLS[1])).saw;
+    });
+    check("a navigation that never commits is not read as the previous page", saw === URLS[1], String(saw));
+    check("…and the stuck tab is closed, not left behind", state.tabs.size === 0, `${state.tabs.size} open`);
+  }
+
   console.log(failures === 0 ? "\nPASS\n" : `\nFAIL — ${failures} check(s) failed\n`);
   process.exit(failures === 0 ? 0 : 1);
 }

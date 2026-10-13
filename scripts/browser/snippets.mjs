@@ -209,13 +209,14 @@ async function urlOfTab(d, tab) {
  * caller's own settling wait, which is all there was before this existed.
  */
 async function waitForNavigation(d, tab, fromUrl, { timeoutMs = 15_000 } = {}) {
-  if (!fromUrl) return;
+  if (!fromUrl) return true;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const now = await urlOfTab(d, tab);
-    if (now === null || now !== fromUrl) return;
+    if (now === null || now !== fromUrl) return true;
     await new Promise((r) => setTimeout(r, 300));
   }
+  return false;
 }
 
 /**
@@ -257,7 +258,12 @@ export async function withScratchTab(fn) {
       const before = await urlOfTab(d, tab);
       try {
         tab = await d.navigateTab(tab, url);
-        await waitForNavigation(d, tab, before);
+        // Still on the previous page after the wait: reading it now would file that page under
+        // this URL. A fresh tab cannot show it, so give this one up.
+        if (!(await waitForNavigation(d, tab, before)) && before !== url) {
+          await d.closeTab(tab).catch(() => {});
+          tab = null;
+        }
       } catch {
         tab = null;
       }

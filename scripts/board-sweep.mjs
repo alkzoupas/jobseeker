@@ -105,7 +105,7 @@ const WALL = [
 // "Your connection is not private". A failed load must be recorded as a failed load.
 const CHROME_ERROR = [
   [/^chrome-error:|^about:|^data:/i, "the page never loaded (Chrome error page)"],
-  [/your connection is not private|NET::ERR_|certificate/i, "TLS / certificate failure"],
+  [/your connection is not private|NET::ERR_/i, "TLS / certificate failure"],
   [/this site can.?t be reached|ERR_NAME_NOT_RESOLVED|DNS_PROBE/i, "host not resolvable"],
   [/ERR_CONNECTION_|took too long to respond|ERR_TIMED_OUT/i, "connection refused or timed out"],
   [/HTTP ERROR 4\d\d|HTTP ERROR 5\d\d|is currently unable to handle this request/i, "HTTP error page"],
