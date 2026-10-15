@@ -4,6 +4,29 @@ Every release, in plain language. Newest first.
 
 ---
 
+## v0.7.13 — 13 October 2026
+
+- Changed: **Pairing the Chrome extension again signs out the earlier pairing.**
+- Changed: **Problem reports hide more.** Your name, ignored chats, company aliases and profile links are masked.
+- Changed: **The last run's result is now one line at the top of the "Run now" menu.** Click it to see the details. A run that finished only partly says what it could not do in plain words.
+- Fixed: **Tasks with a "|" in them no longer break when closed.** The row keeps its columns.
+- Fixed: **Multi-line notes no longer lose text or change other fields.** Line breaks are saved as spaces.
+- Fixed: **The daily run and a dashboard run no longer overlap.** Whichever starts second waits for next time.
+- Fixed: **The daily run on Windows no longer gets stuck on "running".**
+- Fixed: **Chats you already read are picked up.** Messages labelled "Yesterday" or by date were being skipped.
+- Fixed: **Reading LinkedIn no longer closes your own LinkedIn tabs.**
+- Fixed: **The dashboard only answers to this computer's own address.**
+- Fixed: **Mac notifications show correctly when the text contains quotes.**
+- Fixed: **A lead you dismissed no longer comes back by itself.**
+- Fixed: **A chat can no longer be saved under the wrong contact.**
+- Fixed: **Careers pages that mention "certificate" are no longer marked as broken.**
+- Fixed: **Removed careers boards stay removed when you save a link for them.**
+- Fixed: **Adding the same contact twice no longer stores it twice.**
+- Fixed: **Updates on Windows check the new version before switching to it,** and a failed update reopens the app.
+- Fixed: **Re-running the installer keeps your own settings** and clears files the project no longer ships.
+
+---
+
 ## v0.7.12 — 17 September 2026
 
 - New: a small light in the bottom-left corner of the dashboard shows how much of your Claude plan you have used. It is green under half, yellow from half, and red once you hit a limit. Click it for your plan, your current 5-hour session and your week, when each resets, and how many tokens you and JobSeeker have used today. If Claude is not signed in, the light turns grey and offers to run Claude Code.

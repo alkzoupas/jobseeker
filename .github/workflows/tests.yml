@@ -41,6 +41,8 @@ jobs:
       # agents, neither of which may touch the machine running the tests.
       - run: npm run test:runstate
       - run: npm run test:update
+      - run: npm run test:scratch
+      - run: npm run test:feedback
 
   windows:
     runs-on: windows-latest
@@ -65,6 +67,11 @@ jobs:
       # Task Scheduler task, isolated to JobSeeker\JobRunTest and unregistered in its own cleanup.
       - run: npm run test:welcome
       - run: npm run test:runstate
+      - run: npm run test:scratch
+      # The Windows updater against a throwaway install under %TEMP%: the checks before the swap,
+      # a rollback forced by a file held open, and a real update. test:update covers only the bash
+      # twin.
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\win\test-self-update.ps1
 
       # PowerShell 5.1 and 7 do not share a parser, and 5.1 is the only host a stock Windows 10/11
       # is guaranteed to have — the one the installer and the scheduled task actually run under. A

@@ -138,6 +138,41 @@ async function main() {
     check("an unknown channel reads nothing and clicks nothing", !called && res.read === 0);
   }
 
+  // The page snippets themselves, against a stub page.
+  {
+    const { SNIPPETS } = (await import("../extension/snippets.js")).default;
+    const err = (name, args) => JSON.parse(SNIPPETS[name](args)).error || "";
+    const row = (title) => ({ querySelector: () => ({ getAttribute: () => title, textContent: "" }) });
+    globalThis.document = {
+      querySelectorAll: (sel) => (sel === "m" ? [{ innerText: "see you at 7" }] : [row("Someone Else")]),
+      querySelector: () => ({ innerText: "Family chat" }),
+    };
+    check(
+      "the click refuses a list it does not know, whatever selector it is handed",
+      err("openConversationClick", { source: "Telegram", listSelector: "a[href]", index: 0 }) === "unknown chat surface"
+    );
+    check(
+      "a name that is not in the list is not replaced by a row number",
+      err("openConversationClick", { source: "WhatsApp", name: "Recruiter R", index: 0 }) === "conversation not found"
+    );
+    const read = (expect) => JSON.parse(SNIPPETS.readThreadMessages({ expect, headerSelector: "h", messageSelector: "m" }));
+    check("a thread open under another name is not read", read("Recruiter R").error === "a different conversation is open");
+    check("the expected thread is read", read("family chat").text === "see you at 7");
+    delete globalThis.document;
+  }
+
+  // A day-only label must resolve AFTER a sweep made earlier that same day, or a message that
+  // arrived later that day and was read on the phone is never picked up.
+  {
+    const { parseListTime } = await import("./chat-sweep.mjs");
+    const now = new Date(2026, 9, 13, 8, 0, 40); // Tuesday 08:00:40
+    const mark = new Date(2026, 9, 12, 8, 1, 10); // Monday's sweep finished 08:01:10
+    for (const label of ["Yesterday", "Monday", "Oct 12", "10/12/2026"]) {
+      check(`"${label}" is newer than a sweep made that morning`, parseListTime(label, now) > mark);
+    }
+    check('"Sunday" is still older than Monday\'s sweep', parseListTime("Sunday", now) < mark);
+  }
+
   console.log(failures === 0 ? "\nPASS\n" : `\nFAIL — ${failures} check(s) failed\n`);
   process.exit(failures === 0 ? 0 : 1);
 }

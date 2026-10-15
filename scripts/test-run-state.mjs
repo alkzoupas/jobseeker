@@ -423,6 +423,34 @@ async function main() {
   l = await ladder(dir, "2026-09-20");
   check(l.next_tier === 4, "abandonment outranks a pending curation step", `next=${l.next_tier}`);
 
+  console.log("\nthe scheduled run and the run lock\n");
+
+  // The scheduled run said it carried the lock and never took it, so it could drive Chrome beside
+  // a dashboard run and be updated while it worked.
+  const lock = path.join(dir, "data", ".run-now.lock");
+  const statusFile = path.join(dir, "data", ".job-run.status.json");
+  await seedRun(dir, { canRead: true, digest: "delivered: yes" });
+  const untouched = await fs.readFile(statusFile, "utf8").catch(() => "");
+  await fs.writeFile(lock, `${process.pid} track 2026-09-10T07:00:00Z\n`);
+  await runScript(dir, "job-run");
+  check((await fs.readFile(statusFile, "utf8").catch(() => "")) === untouched, "a scheduled run that finds another run in progress starts nothing");
+  check((await fs.readFile(lock, "utf8").catch(() => "")).startsWith(`${process.pid} `), "…and leaves the other run's lock alone");
+  check(/run-skipped/.test(await fs.readFile(path.join(dir, "data", "activity.md"), "utf8")), "…and says so in the activity log");
+  await fs.rm(lock, { force: true });
+
+  const ran = await runWith(dir, { canRead: true, digest: "delivered: yes" });
+  check(ran.state !== "running" && ran.state !== "UNREADABLE", "with the lock free it runs to a verdict", ran.state);
+  check(!existsSync(lock), "…and releases the lock when it ends");
+
+  // The audit that grades the run can itself fail. The Windows twin reported that through a log
+  // function it never loaded, died there, and left the status at "running" for good. The bash one
+  // answered twice ("[][]") and wrote a status file that was not JSON.
+  const audit = path.join(dir, "server", "audit.mjs");
+  await fs.rename(audit, audit + ".away");
+  const noAudit = await runWith(dir, { canRead: true, digest: "delivered: yes" });
+  await fs.rename(audit + ".away", audit);
+  check(noAudit.state !== "running" && noAudit.state !== "UNREADABLE", "a run whose audit fails still reaches a verdict", noAudit.error || noAudit.state);
+
   console.log(`\n${fail ? "FAIL" : "PASS"} — ${pass} ok, ${fail} failed\n`);
   // On macOS the schedule lives inside the sandbox HOME and goes with it. On Windows it is
   // registered with the OS, so it has to be unregistered even though the last case removed it.

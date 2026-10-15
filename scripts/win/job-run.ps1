@@ -216,12 +216,12 @@ function Get-GapsJson {
   # decides the verdict: no gaps means the run is reported ok. So every way of failing to ask says
   # so in the log instead of quietly returning nothing.
   if ($a.ExitCode -ne 0) {
-    Write-RunLog ("gaps: audit.mjs exited " + $a.ExitCode + " -- " + ($a.StdErr -replace "\s+", " ").Trim())
+    Log ("gaps: audit.mjs exited " + $a.ExitCode + " -- " + ($a.StdErr -replace "\s+", " ").Trim())
     return "[]"
   }
   $raw = $a.StdOut.Trim()
   if (-not $raw) {
-    Write-RunLog "gaps: audit.mjs exited 0 but printed nothing"
+    Log "gaps: audit.mjs exited 0 but printed nothing"
     return "[]"
   }
   # The bash twin pipes this JSON through a second node to pull out `.gaps`. Here it is parsed in
@@ -233,7 +233,7 @@ function Get-GapsJson {
   try {
     $parsed = $raw | ConvertFrom-Json
   } catch {
-    Write-RunLog ("gaps: could not parse the audit's answer -- " + $_.Exception.Message)
+    Log ("gaps: could not parse the audit's answer -- " + $_.Exception.Message)
     return "[]"
   }
   if ($null -eq $parsed.gaps) { return "[]" }
@@ -322,6 +322,8 @@ function Reap-WhatsAppMcp {
 $COST_FILE = Join-Path ([System.IO.Path]::GetTempPath()) ("jobrun-cost-" + [guid]::NewGuid().ToString("N"))
 $rc = 1
 $attempt = 0
+$RUN_LOCK = Join-Path $REPO "data\.run-now.lock"
+$HOLDS_RUN_LOCK = $false
 
 try {
   # ---- spend caps -------------------------------------------------------------------------------
@@ -348,6 +350,24 @@ try {
   # Stamped before the ceiling gate, because a refused run still writes a status file and that file
   # needs a start time like any other.
   $script:STARTED = Get-IsoNow
+
+  # ---- run lock ---------------------------------------------------------------------------------
+  # The same file scripts/win/lib/claude-run.ps1 takes for the dashboard's runs: one run drives
+  # Chrome at a time, and the Update button reads it before swapping the code. A manual run arrives
+  # here from run-now.ps1 already holding it. No status is written on a skip, so the cadence gate
+  # above does not count it as a run.
+  if ($env:JOBRUN_SOURCE -eq "scheduled") {
+    $lockParts = @()
+    if (Test-Path -LiteralPath $RUN_LOCK) { $lockParts = @(((Get-Content -LiteralPath $RUN_LOCK -Raw -ErrorAction SilentlyContinue) -as [string]).Trim() -split "\s+") }
+    $lockPid = 0
+    if ($lockParts.Count -ge 2 -and [int]::TryParse($lockParts[0], [ref]$lockPid) -and (Get-Process -Id $lockPid -ErrorAction SilentlyContinue)) {
+      Write-Output ("skipped: another run (" + $lockParts[1] + ", pid " + $lockPid + ") is in progress — Chrome can only be driven by one run at a time")
+      $null = Invoke-Node @((Join-Path $REPO "server\record.mjs"), "log", "run-skipped", ("scheduled run not started: " + $lockParts[1] + " was already running"))
+      exit 0
+    }
+    [System.IO.File]::WriteAllText($RUN_LOCK, ("{0} {1} {2}`n" -f $PID, "job-run", $script:STARTED), $Utf8NoBom)
+    $HOLDS_RUN_LOCK = $true
+  }
 
   # ---- monthly ceiling -------------------------------------------------------------------------
   # Checked BEFORE any work starts, because the point is to not spend the money. A blocked run is
@@ -605,13 +625,6 @@ let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
     Log "spend NOT recorded — no cost returned (crash, timeout, or non-JSON response)"
   }
 
-  # A run that dies mid-write leaves the advisory lock behind; it self-heals after 60s (see
-  # server/lock.mjs) but clearing it here means the dashboard is responsive immediately.
-  $lockPath = Join-Path $REPO "data\.lock"
-  if ($rc -ne 0 -and (Test-Path $lockPath)) {
-    Log "clearing stale data/.lock left by the failed run"
-    Remove-Item $lockPath -Recurse -Force -ErrorAction SilentlyContinue
-  }
 
   # Report the attempt actually USED ($attempt, which survives the loop), not the configured
   # maximum. Passing $ATTEMPTS made a first-try success read as "attempts: 2" — indistinguishable
@@ -693,5 +706,6 @@ let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
   # Both cleanups in one place — the bash has a single EXIT trap for the same reason (a second
   # `trap ... EXIT` silently REPLACES the first, which is how a wake-lock release could go missing).
   foreach ($f in @($COST_FILE, ($COST_FILE + ".guard.out"))) { if ($f -and (Test-Path $f)) { Remove-Item $f -Force -ErrorAction SilentlyContinue } }
+  if ($HOLDS_RUN_LOCK) { Remove-Item -LiteralPath $RUN_LOCK -Force -ErrorAction SilentlyContinue }
   Stop-KeepAwake
 }

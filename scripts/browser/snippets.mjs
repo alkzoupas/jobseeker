@@ -150,9 +150,11 @@ export async function assertCanReadContent(tabs) {
  */
 export async function openConversation(
   tab,
-  { listSelector, nameSelector, name, index, messageSelector, waitMs = 2500, max = 8000 }
+  { source, listSelector, nameSelector, headerSelector, name, index, messageSelector, waitMs = 2500, max = 8000 }
 ) {
   const clicked = await snippetJson(tab, "openConversationClick", {
+    source,
+    // Still sent for a bridge extension installed before the snippet named the lists itself.
     listSelector,
     nameSelector: nameSelector || "span[title]",
     name: name || "",
@@ -160,7 +162,12 @@ export async function openConversation(
   });
   if (!clicked || clicked.error) return null;
   await new Promise((r) => setTimeout(r, waitMs));
-  const body = await snippetJson(tab, "readThreadMessages", { messageSelector, max: Number(max) });
+  const body = await snippetJson(tab, "readThreadMessages", {
+    messageSelector,
+    headerSelector,
+    expect: name || "",
+    max: Number(max),
+  });
   if (!body || body.error || !body.messages) return null;
   return body;
 }
@@ -177,9 +184,13 @@ export async function withOwnedTab(url, fn) {
     await waitForLoad(tab);
     return await fn(tab);
   } finally {
-    // Close by URL match rather than by index: the user may have opened or closed tabs while we
-    // worked, and closing a stale index would close one of THEIR tabs.
-    await d.closeTabsByUrl(url).catch(() => {});
+    // By id: a URL match also closes the user's own tabs on that site, and misses ours after a
+    // redirect. The URL close is only for a bridge extension too old to know closeTab.
+    try {
+      await d.closeTab(tab);
+    } catch {
+      await d.closeTabsByUrl(url).catch(() => {});
+    }
   }
 }
 
@@ -228,13 +239,14 @@ async function urlOfTab(d, tab) {
  * caller's own settling wait, which is all there was before this existed.
  */
 async function waitForNavigation(d, tab, fromUrl, { timeoutMs = 15_000 } = {}) {
-  if (!fromUrl) return;
+  if (!fromUrl) return true;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const now = await urlOfTab(d, tab);
-    if (now === null || now !== fromUrl) return;
+    if (now === null || now !== fromUrl) return true;
     await new Promise((r) => setTimeout(r, 300));
   }
+  return false;
 }
 
 /**
@@ -276,7 +288,12 @@ export async function withScratchTab(fn) {
       const before = await urlOfTab(d, tab);
       try {
         tab = await d.navigateTab(tab, url);
-        await waitForNavigation(d, tab, before);
+        // Still on the previous page after the wait: reading it now would file that page under
+        // this URL. A fresh tab cannot show it, so give this one up.
+        if (!(await waitForNavigation(d, tab, before)) && before !== url) {
+          await d.closeTab(tab).catch(() => {});
+          tab = null;
+        }
       } catch {
         tab = null;
       }

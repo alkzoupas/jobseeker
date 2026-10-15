@@ -113,10 +113,14 @@ export function parseListTime(raw, now = new Date()) {
     return d;
   }
 
+  // A label that names only a DAY resolves to the end of it. The message could have arrived at any
+  // time that day, and resolving it earlier dropped everything that came in after the last sweep.
+  const endOfDay = (d) => (d.setHours(23, 59, 59, 999), d);
+
   if (/^yesterday$/i.test(t)) {
     const d = new Date(now);
     d.setDate(d.getDate() - 1);
-    return d;
+    return endOfDay(d);
   }
   if (/^today$/i.test(t)) return new Date(now);
 
@@ -126,7 +130,7 @@ export function parseListTime(raw, now = new Date()) {
     const d = new Date(now);
     const delta = (d.getDay() - wd + 7) % 7 || 7;
     d.setDate(d.getDate() - delta);
-    return d;
+    return endOfDay(d);
   }
 
   // LinkedIn relative spans: 30m, 2h, 3d, 1w, 2mo
@@ -147,13 +151,13 @@ export function parseListTime(raw, now = new Date()) {
     const a = Number(m[1]);
     const b = Number(m[2]);
     const yr = Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3]);
-    if (b > 12 && a <= 12) return new Date(yr, a - 1, b); // M/D/Y
-    if (a > 12 && b <= 12) return new Date(yr, b - 1, a); // D/M/Y
+    if (b > 12 && a <= 12) return endOfDay(new Date(yr, a - 1, b)); // M/D/Y
+    if (a > 12 && b <= 12) return endOfDay(new Date(yr, b - 1, a)); // D/M/Y
     const guess = Date.parse(t); // both plausible — V8 reads it as M/D/Y, matching the page
-    return Number.isNaN(guess) ? null : new Date(guess);
+    return Number.isNaN(guess) ? null : endOfDay(new Date(guess));
   }
   const parsed = Date.parse(`${t} ${now.getFullYear()}`);
-  if (!Number.isNaN(parsed)) return new Date(parsed);
+  if (!Number.isNaN(parsed)) return endOfDay(new Date(parsed));
 
   return null;
 }
@@ -268,11 +272,13 @@ const THREAD_DOM = {
     listSelector: '#pane-side [role="row"], #pane-side [role="listitem"]',
     nameSelector: "span[title]",
     messageSelector: ['#main div[role="row"]', '#main [data-testid="msg-container"]', "#main .message-in, #main .message-out"],
+    headerSelector: "#main header",
   },
   LinkedIn: {
     listSelector: 'li.msg-conversation-listitem, li[class*="conversation-listitem"]',
     nameSelector: '.msg-conversation-listitem__participant-names, [class*="participant-names"]',
     messageSelector: [".msg-s-event-listitem", '[class*="event-listitem"]'],
+    headerSelector: '.msg-title-bar, [class*="msg-entity-lockup__entity-title"]',
   },
 };
 
@@ -305,7 +311,7 @@ export async function readThreads({ ctx, source, tab, chats, limit = 12 }) {
     // and trimming here would trim the WRONG end — the store-side slice cuts from the front, so the
     // most recent messages, the ones that say what was agreed, are exactly what would be lost.
     const body = await ctx
-      .openConversation(tab, { ...dom, name: c.name, index: idx, max: 1300 })
+      .openConversation(tab, { ...dom, source, name: c.name, index: idx, max: 1300 })
       .catch(() => null);
     if (body && body.text) {
       c.thread_text = body.text;

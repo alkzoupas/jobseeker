@@ -238,6 +238,26 @@ try {
   const stillOld = JSON.parse(await fs.readFile(path.join(inst, "package.json"), "utf8")).version;
   check(stillOld !== "0.99.0", "…and replaces nothing", `version is ${stillOld}`);
 
+  // --- a swap that fails half way walks back out ---
+  // .claude is the last directory replaced, so making it unwritable fails the swap after
+  // everything else has already moved. The real update below then runs on what was put back.
+  await fs.chmod(path.join(inst, ".claude"), 0o555);
+  const half = await run("bash", [path.join(inst, "scripts/self-update.sh"), "v0.99.0"], {
+    cwd: inst,
+    env: { ...env, JOBSEEKER_URL: url },
+  });
+  await fs.chmod(path.join(inst, ".claude"), 0o755);
+  check(half.code === 1, "a swap that cannot finish fails", `exit ${half.code}`);
+  const back = JSON.parse(await fs.readFile(path.join(inst, "package.json"), "utf8")).version;
+  check(back === stillOld, "…and the old code is back", `version is ${back}`);
+  const stHalf = JSON.parse(await fs.readFile(path.join(inst, "data/.setup/update.json"), "utf8"));
+  check(stHalf.phase === "failed" && stHalf.rolledBack === true, "…and it says failed, rolled back", JSON.stringify(stHalf));
+  check(
+    (await fs.access(path.join(inst, "gone-upstream.txt")).then(() => true).catch(() => false)) &&
+      !(await fs.access(path.join(inst, "data/.setup/update.broken")).then(() => true).catch(() => false)),
+    "…with what was moved out put back, and no broken marker left"
+  );
+
   // --- the real thing ---
   const up = await run("bash", [path.join(inst, "scripts/self-update.sh"), "v0.99.0"], {
     cwd: inst,

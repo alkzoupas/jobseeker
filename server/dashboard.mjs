@@ -19,7 +19,6 @@ import {
   readTable,
   appendTableRow,
   sanitizeCell,
-  splitRow,
   newId,
   writeFileAtomic,
 } from "./md.mjs";
@@ -38,7 +37,17 @@ async function currentVersion() {
 }
 import { findRepost, setCompanyAliases} from "./match.mjs";
 import { companyAliases } from "./config.mjs";
-import { DISMISS_TAGS } from "./record.mjs";
+import {
+  DISMISS_TAGS,
+  boardKey,
+  ensureTable,
+  logActivity,
+  upsertBoard,
+  advanceAppStage,
+  dismissAdvance,
+  addContact,
+  setTaskStatusFor,
+} from "./record.mjs";
 import { buildBundle } from "./feedback.mjs";
 import { usageSnapshot } from "./usage.mjs";
 import { whatsappPluginState, whatsappFixSteps } from "./whatsapp-plugin.mjs";
@@ -682,27 +691,10 @@ const FEEDBACK_MODAL = `
   </div>
 </div>`;
 
-// The ATS/careers-board registry (see server/record.mjs and AGENT-RULES §12). Mirrored here rather
-// than shelling out to record.mjs: handlePost already holds the data/ lock, and record.mjs takes
-// the same lock at startup, so spawning it from inside a POST would deadlock until the timeout.
+// The ATS/careers-board registry (see AGENT-RULES §12). Its writes are record.mjs's own functions,
+// imported and called in-process: handlePost already holds the data/ lock, and SPAWNING record.mjs
+// from inside a POST would wait on that same lock until the timeout.
 const BOARDS_FILE = path.join(DATA, "boards.md");
-const BOARD_HEADERS = ["company", "market", "ats", "endpoint", "access", "volatile", "last_verified", "notes"];
-const BOARDS_TEMPLATE =
-  "# ATS / careers-board registry\n\n" +
-  "One row per company: where its board is and whether a stateless run can read it. Written by\n" +
-  "role-scout via `record.mjs upsert-board`, read via `get-board` / `list-boards`. Prose quirks\n" +
-  "(rotating tokens, SPA hazards) live in docs/boards.md.\n\n" +
-  "`access`: json = stateless JSON works · html = stateless HTML works · browser = needs Chrome ·\n" +
-  "blocked = rejects scripts (403/500/TLS) · none = no board exists · manual = URL you pasted, awaiting verification.\n\n" +
-  `| ${BOARD_HEADERS.join(" | ")} |\n|${BOARD_HEADERS.map(() => "---").join("|")}|\n`;
-
-function boardKey(company) {
-  return String(company || "")
-    .toLowerCase()
-    .replace(/\b(inc|llc|ltd|gmbh|corp|co|the|group|software|technologies|networks|security)\b/g, "")
-    .replace(/[^a-z0-9]+/g, "")
-    .trim();
-}
 
 // Access verdicts that mean "we could NOT read this company's board" — the ones worth surfacing to
 // the user, because a pasted URL is the only thing that unblocks them.
@@ -2800,6 +2792,16 @@ async function readJobRunAttempts(started) {
 //   running after a failure  amber, with the failure said: an attempt failed and a retry is under way
 //   finished                 green / amber (partly) / red (failed and stopped), for 12 hours after
 //   nothing recent           no badge
+// What a run could not do, in the user's words rather than the slugs the machine passes around.
+// The blocker text underneath is reproduced verbatim (AGENT-RULES §10) — each one is written as
+// the exact one-time fix, and paraphrasing it leaves the reader with nothing to act on.
+const GAP_SAYS = {
+  "browser-read":
+    "WhatsApp Web and LinkedIn messages were not read, and no LinkedIn role search ran — Chrome could not be read.",
+  "boards-queued": "Careers boards that need a browser were left unread for the same reason.",
+  "digest-undelivered": "Your digest was written but never reached you.",
+};
+
 const RECENT_FINISH = 12 * 60 * 60 * 1000;
 
 function recentLast(busy, last) {
@@ -2861,14 +2863,36 @@ function runStatusPanel({ busy, last, progress, attempts }) {
   if (!last) return "";
   const v = lastVerdict(last);
   const recent = recentLast(busy, last);
-  return `<div class="runmenu-last ${recent ? `recent ${v.cls}` : ""}">
-      <p>Last run from here: <b>${esc(last.label || runLabel(last.slug))}</b>
-        <span class="${v.cls === "ok" ? "ok-pill" : v.cls === "warn" ? "warn-pill" : "bad-pill runfail-pill"}">${esc(v.says)}</span>
-        <span class="muted">${esc(localStamp(last.finished))}</span></p>
-      ${last.detail && v.cls !== "ok" ? `<p class="runlast-why">${esc(last.detail)}</p>` : ""}
-      ${attemptsHTML(attempts, false)}
-      ${recent ? `<p class="runlast-act"><a href="" onclick="location.reload();return false">Reload to see what it found</a></p>` : ""}
-    </div>`;
+  // Folded by default: the menu is for starting a run, and the last one is a line to open when
+  // wanted, not a block to read past. A run that finished partly names what it could not do in the
+  // same sentences Today uses, instead of the slugs the status file carries.
+  const gapsM = /^(.*?):\s*(\[.*\])\s*$/.exec(String(last.detail || ""));
+  let why = "";
+  if (gapsM) {
+    let gaps = [];
+    try {
+      gaps = JSON.parse(gapsM[2]);
+    } catch {
+      /* not a list after all */
+    }
+    why = gaps.length
+      ? `<p class="runlast-why">Part of the run could not finish:</p><ul class="runlast-gaps">${gaps
+          .map((g) => `<li>${esc(GAP_SAYS[g] || g)}</li>`)
+          .join("")}</ul>`
+      : "";
+  } else if (last.detail && v.cls !== "ok") {
+    why = `<p class="runlast-why">${esc(last.detail)}</p>`;
+  }
+  return `<details class="lastrun" id="lastrun">
+      <summary><span class="lr-title">Last run results</span>
+        <span class="${v.cls === "ok" ? "ok-pill" : v.cls === "warn" ? "warn-pill" : "bad-pill runfail-pill"}">${esc(v.says)}</span></summary>
+      <div class="lastrun-body">
+        <p class="lr-what"><b>${esc(last.label || runLabel(last.slug))}</b> <span class="muted">· ${esc(localStamp(last.finished))}</span></p>
+        ${why}
+        ${attemptsHTML(attempts, false)}
+        ${recent ? `<p class="runlast-act"><a href="" onclick="location.reload();return false">Reload to see what it found</a></p>` : ""}
+      </div>
+    </details>`;
 }
 
 // Everything the two status fragments need, gathered once per page render and once per poll.
@@ -2896,10 +2920,10 @@ function runNowMenu({ tab, busy, status = null }) {
       title="${esc(busy ? `${runLabel(busy.slug)} is already running` : "Start one of the job-search commands now")}">
       Run now <span class="caret" aria-hidden="true">▾</span></button>
     <div id="runmenu" class="pop pop-run hide" role="dialog" aria-label="Run now">
+      <div id="runstatus-menu" class="runstatus-menu">${runStatusPanel(status || { busy })}</div>
       <p class="pop-h">Run now</p>
       <p class="pop-sub">Nothing here applies or sends — it queues approvals for you, exactly as the
         scheduled run does. One at a time: Chrome cannot be driven by two.</p>
-      <div id="runstatus-menu" class="runstatus-menu">${runStatusPanel(status || { busy })}</div>
       <div class="runmenu-list">
         ${RUN_MENU.map(
           ([slug, label, sub]) => `<form method="POST" action="/run-now">
@@ -3511,15 +3535,6 @@ function todayHTML(all, dueToday, appTok, appIds) {
         })
       : "";
 
-  // What a run could not do, in the user's words rather than the slugs the machine passes around.
-  // The blocker text underneath is reproduced verbatim (AGENT-RULES §10) — each one is written as
-  // the exact one-time fix, and paraphrasing it leaves the reader with nothing to act on.
-  const GAP_SAYS = {
-    "browser-read":
-      "WhatsApp Web and LinkedIn messages were not read, and no LinkedIn role search ran — Chrome could not be read.",
-    "boards-queued": "Careers boards that need a browser were left unread for the same reason.",
-    "digest-undelivered": "Your digest was written but never reached you.",
-  };
 
   const runBanner = (() => {
     if (!run) return "";
@@ -4602,11 +4617,18 @@ button.runbadge{font:inherit;font-size:12px;font-weight:600;border:0;cursor:poin
 .runbadge.done.ok{background:rgba(46,160,67,.16);color:#2ea043}
 .runbadge.done.warn{background:rgba(214,138,0,.16);color:#d68a00}
 .runbadge.done.bad{background:rgba(229,72,77,.14);color:#e5484d}
-.runmenu-last p{margin:0}
+.lastrun{margin:0 0 10px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.lastrun summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--fg)}
+.lastrun summary .lr-title{margin-left:2px;margin-right:6px}
+.lastrun summary:hover .lr-title{color:var(--acc)}
+.lastrun summary .ok-pill,.lastrun summary .warn-pill,.lastrun summary .bad-pill{font-size:11px;padding:1px 8px;font-weight:600}
+.lastrun-body{margin:8px 0 0 14px;display:flex;flex-direction:column;gap:5px;font-size:12px;line-height:1.45}
+.lastrun-body p{margin:0}
+.runlast-gaps{margin:0;padding-left:16px;color:var(--fg)}
+.runlast-gaps li{margin:2px 0}
 .runfail-pill{background:rgba(229,72,77,.14);color:#e5484d}
-.runmenu-last.recent.bad{border-top-color:rgba(229,72,77,.45)}
-.runlast-why{margin-top:4px!important;font-size:11.5px;line-height:1.45;color:var(--fg)}
-.runlast-act{margin-top:6px!important}
+.runlast-why{font-size:12px;line-height:1.45;color:var(--fg)}
+.runlast-act{margin-top:2px!important}
 /* The run checklist: a box per step, ticked when the playbook says the step is done. */
 .runsteps{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:5px}
 .rs{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mut)}
@@ -4631,7 +4653,6 @@ button.runbadge{font:inherit;font-size:12px;font-weight:600;border:0;cursor:poin
 .runmenu-item[disabled]{opacity:.4;cursor:not-allowed}
 .rmi-label{font-size:13px;font-weight:650}
 .rmi-sub{font-size:11px;color:var(--mut);line-height:1.4}
-.runmenu-last{margin:10px 0 0;padding-top:9px;border-top:1px solid var(--line);font-size:11px;color:var(--mut)}
 /* Add task — the one button in the bar that CREATES something, so it is filled rather than
    outlined and reads as the primary act next to Run now's outline. */
 .addtask-btn{background:var(--acc);border-color:var(--acc);color:var(--bg);font-weight:700;gap:5px}
@@ -5508,7 +5529,11 @@ const JS = `${VIEWPORT_JS}
       if (!d.status) return;
       var b = document.getElementById('runstatus-badge'), m = document.getElementById('runstatus-menu');
       if (b && b.innerHTML !== d.status.badge) b.innerHTML = d.status.badge;
-      if (m && m.innerHTML !== d.status.menu) m.innerHTML = d.status.menu;
+      if (m && m.innerHTML !== d.status.menu) {
+        var lr = document.getElementById('lastrun'), wasOpen = !!(lr && lr.open);
+        m.innerHTML = d.status.menu;
+        var lr2 = document.getElementById('lastrun'); if (lr2 && wasOpen) lr2.open = true;
+      }
       /* The run ended while this page was open: the buttons it greyed out work again. */
       if (live && !d.running) {
         document.querySelectorAll('[data-busy]').forEach(function(el){
@@ -5522,8 +5547,12 @@ const JS = `${VIEWPORT_JS}
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(d){
           if (!d) return;
-          swapStatus(d);
-          if (window.__swapDigest) window.__swapDigest(d.digest);
+          /* Fragments from a newer build carry markup this page has no styles for, so a stale page
+             waits for its reload instead of swapping them in half-styled. */
+          if (!d.build || d.build === BUILD) {
+            swapStatus(d);
+            if (window.__swapDigest) window.__swapDigest(d.digest);
+          }
           /* A different build is answering: this page is left over from before an update. Reload for
              the new one -- at a quiet moment, like any other reload here. The session note stops a
              loop if something between here and the server keeps handing back the old page. */
@@ -6628,16 +6657,10 @@ async function handleAddCompany(form) {
   const boards = await readTable(BOARDS_FILE);
   const known = boards.rows.find((r) => boardKey(r.company) === boardKey(company));
   if (!known) {
-    await ensureTable(BOARDS_FILE, BOARDS_TEMPLATE);
-    const text = await fs.readFile(BOARDS_FILE, "utf8");
-    const lines = text.split("\n");
-    const headerIdx = lines.findIndex((l) => /^\s*\|/.test(l));
-    const row = {
-      company, market, ats: "", endpoint: "", access: "pending", volatile: "no",
-      last_verified: today(), notes: `Added ${today()} from the dashboard; automatic board discovery in progress.`,
-    };
-    lines.splice(headerIdx + 2, 0, `| ${BOARD_HEADERS.map((h) => sanitizeCell(row[h])).join(" | ")} |`);
-    await writeFileAtomic(BOARDS_FILE, lines.join("\n"));
+    await upsertBoard({
+      company, market, access: "pending",
+      notes: `Added ${today()} from the dashboard; automatic board discovery in progress.`,
+    });
   }
 
   await logActivity(
@@ -6665,44 +6688,16 @@ async function handleAddCompany(form) {
 // The reason is deliberately optional — a mandatory field just produces empty reasons.
 async function handleDismissAdvance(form) {
   const id = String(form.id || "").trim();
-  const note = String(form.note || "").trim();
-  const dir = path.join(DATA, "applications");
-  const recs = await readRecordDir(dir);
-  const match = recs.find((r) => r.data.id === id);
-  if (!match) return { kind: "err", msg: `No application ${id}.` };
-  const stage = match.data.pending_stage;
-  if (!stage) return { kind: "err", msg: `${match.data.company} has no pending advance.` };
-  const merged = {
-    ...match.data,
-    last_update: today(),
-    pending_stage: "",
-    pending_note: "",
-    pending_since: "",
-    advance_dismissed_stage: stage,
-    advance_dismissed_date: today(),
-    advance_dismissed_note: note,
-  };
-  // Field order comes from the record itself, as every other dashboard writer does —
-  // APPLICATION_ORDER lives in record.mjs and is not in scope here.
-  await writeFileAtomic(path.join(dir, match.file), stringifyFrontmatter(merged, match.body, Object.keys(merged)));
-  await logActivity(
-    "advance-dismissed",
-    `${merged.company} — ${merged.role}: declined the advance to ${stage}${note ? ` — ${note}` : " (no reason given)"}`
-  );
-  return { kind: "ok", msg: `${merged.company}: advance to ${stage} dismissed — it will not be raised again.` };
+  const r = await dismissAdvance(id, String(form.note || "").trim());
+  if (r.action === "not-found") return { kind: "err", msg: `No application ${id}.` };
+  if (r.action === "no-pending-stage") return { kind: "err", msg: `${r.company} has no pending advance.` };
+  return { kind: "ok", msg: `${r.company}: advance to ${r.stage} dismissed — it will not be raised again.` };
 }
 
 // One handler for both the row trash icon and the batch button, so they cannot diverge in what
 // "removed" means.
-//
-// Writes the table directly rather than shelling out to record.mjs. The POST path already holds the
-// data/ lock and record.mjs takes the same lock on startup, so calling it from in here deadlocks
-// until the timeout -- exactly what the note at the top of this file warns about.
 async function handleDismissBoard(form) {
-  const text = await fs.readFile(BOARDS_FILE, "utf8");
-  const lines = text.split("\n");
-  const headerIdx = lines.findIndex((l) => /^\s*\|/.test(l));
-  const { headers, rows } = await readTable(BOARDS_FILE);
+  const { rows } = await readTable(BOARDS_FILE);
   const stamp = today();
 
   const targets =
@@ -6712,12 +6707,8 @@ async function handleDismissBoard(form) {
 
   if (!targets.length) throw new Error(form.scope === "none" ? "nothing to remove" : "no matching board row");
 
-  for (const r of targets) {
-    const i = rows.indexOf(r);
-    const merged = { ...r, dismissed: stamp };
-    lines[headerIdx + 2 + i] = `| ${headers.map((h) => sanitizeCell(merged[h] ?? "")).join(" | ")} |`;
-  }
-  await writeFileAtomic(BOARDS_FILE, lines.join("\n"));
+  // last_verified is passed back unchanged: removing a board is not a fresh look at it.
+  for (const r of targets) await upsertBoard({ company: r.company, dismissed: stamp, last_verified: r.last_verified });
 
   const what =
     form.scope === "none"
@@ -6733,7 +6724,6 @@ async function handleSetBoard(form) {
   const companyIn = String(form.company || "").trim();
   if (!companyIn) throw new Error("set-board needs a company");
   const endpoint = String(form.endpoint || "").trim();
-  await ensureTable(BOARDS_FILE, BOARDS_TEMPLATE);
   const { rows } = await readTable(BOARDS_FILE);
   const key = boardKey(companyIn);
   const idx = rows.findIndex((r) => boardKey(r.company) === key);
@@ -6758,13 +6748,7 @@ async function handleSetBoard(form) {
         }`
       : priorNote,
   };
-  const text = await fs.readFile(BOARDS_FILE, "utf8");
-  const lines = text.split("\n");
-  const headerIdx = lines.findIndex((l) => /^\s*\|/.test(l));
-  const row = `| ${BOARD_HEADERS.map((h) => sanitizeCell(merged[h])).join(" | ")} |`;
-  if (idx >= 0) lines[headerIdx + 2 + idx] = row;
-  else lines.splice(headerIdx + 2, 0, row);
-  await writeFileAtomic(BOARDS_FILE, lines.join("\n"));
+  await upsertBoard(merged);
   await logActivity(
     "board-manual",
     endpoint
@@ -8498,8 +8482,9 @@ async function orphanedProposals() {
     const m = marketKey(p.data.market);
     // A proposal with no market recorded is not evidence of a dropped vertical — it is just an
     // untagged row, and dismissing it here would be a guess.
+    // Applied roles are history, not live suggestions: clearing them would file them as dismissed.
     if (!m) return false;
-    return !wanted.has(m) && String(p.data.status || "proposed").toLowerCase() !== "dismissed";
+    return !wanted.has(m) && !/^(dismissed|applied)$/i.test(String(p.data.status || ""));
   });
   const byMarket = {};
   for (const p of hit) {
@@ -8521,7 +8506,7 @@ async function criteriaImpact(nextMarkets) {
   const hit = proposals.filter(
     (p) =>
       removedKeys.has(marketKey(p.data.market)) &&
-      String(p.data.status || "proposed").toLowerCase() !== "dismissed"
+      !/^(dismissed|applied)$/i.test(String(p.data.status || ""))
   );
   const byMarket = {};
   for (const p of hit) {
@@ -8870,56 +8855,7 @@ async function handleSetAppStatus(form) {
 // into next_action, and clear the pending fields.
 async function handleAdvanceAppStage(form) {
   const id = (form.id ?? "").trim();
-  if (!id) return;
-  const dir = path.join(DATA, "applications");
-  const recs = await readRecordDir(dir);
-  const rec = recs.find((r) => r.data.id === id || r.id === id);
-  if (!rec) return;
-  const d = rec.data;
-  const target = (d.pending_stage || "").trim();
-  if (!target) return;
-  // forward-only: don't move backward if pending_stage ranks below current status
-  const newStatus = statusIndex(target) >= statusIndex(d.status) ? target : d.status;
-  const data = { ...d, status: newStatus, last_update: today(), next_action: d.pending_note || d.next_action || "", pending_stage: "", pending_note: "" };
-  await writeFileAtomic(path.join(dir, rec.file), stringifyFrontmatter(data, rec.body, Object.keys(data)));
-  await logActivity("stage-advance", `${data.company} — ${data.role} → ${newStatus} (confirmed via dashboard)`);
-}
-
-/**
- * Set `status` on every task whose id is in `ids`. Returns how many rows changed.
- *
- * Uses md.mjs's splitRow/sanitizeCell rather than a hand-rolled `.split("|")`. The previous version
- * split on raw pipes, so a task detail containing one would shift every later cell one column left
- * on rewrite — the identical corruption that misaligned seven board rows plus communications.md and
- * activity.md before splitRow existed. One row at a time it is easy to miss; a bulk action would
- * have multiplied it.
- */
-async function setTaskStatusFor(ids, status, note = "") {
-  const wanted = new Set(ids);
-  if (!wanted.size || !status) return 0;
-  const file = path.join(DATA, "tasks.md");
-  const text = await fs.readFile(file, "utf8");
-  const lines = text.split("\n");
-  const headerIdx = lines.findIndex((l) => /^\s*\|/.test(l));
-  if (headerIdx === -1) return 0;
-  const headers = splitRow(lines[headerIdx]);
-  const idIdx = headers.indexOf("id");
-  const stIdx = headers.indexOf("status");
-  if (idIdx === -1 || stIdx === -1) return 0;
-  let changed = 0;
-  for (let i = headerIdx + 2; i < lines.length; i++) {
-    if (!/^\s*\|/.test(lines[i])) continue;
-    const cells = splitRow(lines[i]);
-    if (!wanted.has(cells[idIdx])) continue;
-    cells[stIdx] = status;
-    lines[i] = `| ${cells.map((c) => sanitizeCell(c)).join(" | ")} |`;
-    changed++;
-  }
-  if (changed) {
-    await writeFileAtomic(file, lines.join("\n"));
-    await logActivity("task-" + status, `${changed} task(s) → ${status} (dashboard)${note ? ` — ${note}` : ""}`);
-  }
-  return changed;
+  if (id) await advanceAppStage(id);
 }
 
 // Start one of the job-search commands from the dashboard.
@@ -9380,18 +9316,9 @@ async function handleSetProposalStatus(form) {
 }
 
 async function handleAddContact(form) {
-  const file = path.join(DATA, "contacts.md");
-  await ensureTable(file, "# Contacts\n\n| id | name | company | role | email | linkedin_url | notes |\n|----|------|---------|------|-------|--------------|-------|\n");
-  await appendTableRow(file, {
-    id: newId("contact"),
-    name: sanitizeCell(form.name),
-    company: sanitizeCell(form.company),
-    role: sanitizeCell(form.role),
-    email: sanitizeCell(form.email),
-    linkedin_url: sanitizeCell(form.linkedin_url),
-    notes: sanitizeCell(form.notes),
-  });
-  await logActivity("contact-add", `Manual contact: ${sanitizeCell(form.name)}`);
+  const r = await addContact(form);
+  if (r.action === "added") await logActivity("contact-add", `Manual contact: ${sanitizeCell(form.name)}`);
+  return r;
 }
 
 async function handleUploadCV(req, url) {
@@ -9405,21 +9332,6 @@ async function handleUploadCV(req, url) {
   return dest;
 }
 
-
-async function ensureTable(file, template) {
-  try {
-    await fs.access(file);
-  } catch {
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, template, "utf8");
-  }
-}
-
-async function logActivity(type, detail) {
-  const file = path.join(DATA, "activity.md");
-  await ensureTable(file, "# Activity\n\n| timestamp | type | detail |\n|-----------|------|--------|\n");
-  await appendTableRow(file, { timestamp: nowISO(), type, detail: sanitizeCell(detail) }, "top");
-}
 
 // Reject cross-site POSTs.
 //
@@ -9459,6 +9371,15 @@ function crossSitePost(req) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   try {
+    // DNS rebinding: a site that re-points its own name at 127.0.0.1 is same-origin to itself, so
+    // every label crossSitePost reads looks fine and its script can read these pages. Its name
+    // still arrives in Host, and it is not ours. Skipped only when the operator chose to bind
+    // beyond loopback, where the dashboard is reached by other names on purpose.
+    if (LOOPBACK.has(HOST) && !LOCAL_HOSTS.has(String(req.headers.host || "").replace(/:\d+$/, ""))) {
+      console.warn(`[host] rejected ${req.method} ${url.pathname} — Host: ${String(req.headers.host).slice(0, 60)}`);
+      res.writeHead(403, { "content-type": "text/plain" });
+      return res.end("Unknown host");
+    }
     // The Chrome extension's own channel. It authenticates with its pairing token, not with the
     // browser's same-origin labels (an extension origin is never ours), so it is routed before
     // the CSRF check below ever sees it.
@@ -9704,6 +9625,8 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("Not found");
   } catch (e) {
+    // A second writeHead would throw from inside this handler and take the whole process down.
+    if (res.headersSent) return res.end();
     res.writeHead(500, { "content-type": "text/plain" });
     res.end("Error: " + (e?.message || e));
   }
@@ -10021,8 +9944,8 @@ async function handlePost(req, res, url) {
     return redirect(res, r.flash);
   }
   if (url.pathname === "/add-contact") {
-    await handleAddContact(form);
-    return redirect(res, { kind: "ok", msg: "Contact added." });
+    const r = await handleAddContact(form);
+    return redirect(res, { kind: "ok", msg: r.action === "added" ? "Contact added." : "That contact is already on file." });
   }
   res.writeHead(404, { "content-type": "text/plain" });
   res.end("Not found");
@@ -10042,6 +9965,8 @@ const PORT = Number(process.env.PORT || cfg.dashboard_port || 4319);
 // operator's, but the safe value is the default.
 const HOST = process.env.JOBSEEKER_DASHBOARD_HOST || "127.0.0.1";
 const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
+// The same three as a browser writes them in a Host header.
+const LOCAL_HOSTS = new Set(["127.0.0.1", "[::1]", "localhost"]);
 
 // A second copy on a port the first one holds is the commonest way this fails to start, and an
 // unhandled 'error' event turns that into a Node stack trace about EADDRINUSE -- which tells the

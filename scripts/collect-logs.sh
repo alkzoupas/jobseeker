@@ -85,6 +85,7 @@ process.stdin.on("end", () => {
   s = s
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "<redacted-email>")
     .replace(/\b[0-9a-f]{32,}\b/gi, "<redacted-token>")
+    .replace(/(authorization"?\s*[:=]\s*"?)[^\n",}]+/gi, "$1<redacted>")
     .replace(/(token|secret|key|password|authorization)("?\s*[:=]\s*"?)[^\s",}]+/gi, "$1$2<redacted>")
     .replace(/(^|[^\w./])(\+?\d[\d\s()-]{7,}\d)(?![\w./])/g, (m, pre, num) =>
       num.replace(/\D/g, "").length >= 9 ? pre + "<redacted-phone>" : m);
