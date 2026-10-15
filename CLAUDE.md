@@ -37,10 +37,10 @@ When the user says `jobseeker` / `@jobseeker` or asks something job-search-relat
 
 - **All state writes go through `server/record.mjs`**, never hand-edits to `data/` (it locks and writes atomically).
 - **Lead vs application:** a sent CV or referral is a lead; an application needs confirmation evidence.
-- **Never send a message or submit an application without an approved approval.**
+- **Never send a message or submit an application without an approved approval.** (Sends are hook-enforced: `~/.claude/hooks/send_gate.py`.)
 - **Chrome is a serial resource:** one Chrome-driving agent at a time.
 - **Never guess a person's name from an email/handle.**
-- **Run scripts via `npm run <script>` or `node scripts/run.mjs <name>`,** never `bash scripts/<x>.sh` (breaks Windows).
+- **Run scripts via `npm run <script>` or `node scripts/run.mjs <name>`,** never `bash scripts/<x>.sh` (breaks Windows; hook-enforced). Full suite: `npm test` (`-- --quick` skips the ~100s run-state test).
 - **Personal settings live in `config/job-seeker.config.md`** (`company_aliases`, `ignored_chats`); never hardcode them.
 
 Dashboard: `npm run dashboard` → http://localhost:4319 (view/edit only).
