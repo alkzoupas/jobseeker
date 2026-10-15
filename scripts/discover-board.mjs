@@ -208,12 +208,25 @@ function record(json) {
 }
 
 async function main() {
-  const args = process.argv.slice(2).filter((a) => a !== "--dry-run");
-  const dry = process.argv.includes("--dry-run");
+  const usage = 'Usage: discover-board.mjs "<company>" [market] [--dry-run]\n';
+  const argv = process.argv.slice(2);
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(usage);
+    return;
+  }
+  // Any other flag is a mistake, never a company name: an unknown "--foo" used to be recorded as a
+  // company called "--foo" and probed as an ATS slug.
+  const unknown = argv.filter((a) => a.startsWith("-") && a !== "--dry-run");
+  if (unknown.length) {
+    process.stderr.write(`Unknown option ${unknown.join(", ")}\n${usage}`);
+    process.exit(2);
+  }
+  const args = argv.filter((a) => a !== "--dry-run");
+  const dry = argv.includes("--dry-run");
   const company = args[0];
   const market = args[1] || "";
   if (!company) {
-    process.stderr.write('Usage: discover-board.mjs "<company>" [market] [--dry-run]\n');
+    process.stderr.write(usage);
     process.exit(2);
   }
 
